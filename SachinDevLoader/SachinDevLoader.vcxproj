@@ -106,6 +106,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)ext\;$(ProjectDir)src\Headers\;$(DXSDK_DIR)Include;$(ProjectDir)ext\misc\;$(ProjectDir)ext\ImGui\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -124,6 +125,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)ext\;$(ProjectDir)src\Headers\;$(DXSDK_DIR)\Include;$(ProjectDir)ext\misc\;$(ProjectDir)ext\ImGui\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -134,6 +136,9 @@
       <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;winhttp.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\Resources\version.rc" />
+  </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ext\ImGui\imgui.cpp" />
     <ClCompile Include="ext\ImGui\imgui_draw.cpp" />
