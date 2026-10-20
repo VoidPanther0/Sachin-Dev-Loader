@@ -20,7 +20,7 @@ Don't forget about joining our discord community! https://discord.gg/CsuXTegewj
 <ul>
   <li>External stuff
     <ul>
-      <li>Supabase login and license checks</li>
+      <li>Supabase username and password login</li>
       <li>Font awesome support</li>
     </ul>
   </li>

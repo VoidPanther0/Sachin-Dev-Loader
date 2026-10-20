@@ -14,7 +14,7 @@ inline int subtab = 0;
 
 inline char LoginUsername[32];
 inline char LoginPassword[64];
-inline char LoginKey[64];
+inline bool SavePassword = false;
 
 inline float alphaColor = 0.f;
 

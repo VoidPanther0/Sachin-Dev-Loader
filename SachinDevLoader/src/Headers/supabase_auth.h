@@ -1,9 +1,9 @@
 #pragma once
 
 // Supabase-backed loader authentication.
-// Login rule: username + password + license key. All three must match.
+// Login rule: username + password only.
 //   username + password -> Supabase Auth (GoTrue) password grant
-//   license key         -> public.claim_license() RPC, checked in Postgres
+//   hardware id         -> public.account_login() RPC, bound on first login
 // Network calls run on worker threads, the UI only polls status.
 
 #include <string>
@@ -17,32 +17,24 @@ enum Status {
 	StatusError = 3,
 };
 
-struct LicenseInfo {
-	std::string label;
-	std::string key_prefix;
-	std::string expires_at;
-	int days_left = 0;
-	std::string hwid;
-};
-
 struct Session {
 	bool valid = false;
 	std::string username;
 	std::string access_token;
 	std::string refresh_token;
 	long long expires_at = 0; // unix seconds
-	LicenseInfo license;
 };
 
 // Computes the hardware id once and stores it. Safe to call more than once.
 void Init();
 
 // Call every frame from the render loop. Refreshes the token and re-checks the
-// license in the background so a revoked or expired key locks the loader.
+// account in the background so a banned account or a different machine locks
+// the loader.
 void Tick();
 
-// Starts the login flow on a worker thread. Key material stays in memory only.
-void StartLogin(const std::string& username, const std::string& password, const std::string& license_key);
+// Starts the login flow on a worker thread.
+void StartLogin(const std::string& username, const std::string& password);
 
 // Status of the last login attempt.
 int LoginStatus();
@@ -58,7 +50,17 @@ bool HasSession();
 Session GetSession();
 void SignOut();
 
-// Stable machine fingerprint used for license binding.
+// Saved login, encrypted with Windows DPAPI for the current Windows user.
+struct SavedLogin {
+	std::string username;
+	std::string password;
+};
+
+bool LoadSavedLogin(SavedLogin& saved);
+bool SaveLogin(const std::string& username, const std::string& password);
+void ForgetSavedLogin();
+
+// Stable machine fingerprint used for account binding.
 const std::string& MachineHwid();
 
 // Usernames are lowercase letters, digits and underscore, 3 to 20 characters.

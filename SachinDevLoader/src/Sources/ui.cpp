@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <string>
 
 Loader::CUSTOM c;
@@ -23,6 +24,14 @@ std::string LowerUsername(const char* input)
 void Loader::ui::BeforeLoop()
 {
     sdauth::Init();
+
+    sdauth::SavedLogin saved;
+    if (sdauth::LoadSavedLogin(saved))
+    {
+        strncpy_s(LoginUsername, saved.username.c_str(), _TRUNCATE);
+        strncpy_s(LoginPassword, saved.password.c_str(), _TRUNCATE);
+        SavePassword = true;
+    }
 
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_16_FA, 0 };
@@ -78,6 +87,14 @@ void Loader::ui::Render()
         {
             if (sdauth::LoginStatus() == sdauth::StatusOk && sdauth::HasSession())
             {
+                if (SavePassword)
+                {
+                    const std::string username = LowerUsername(LoginUsername);
+                    sdauth::SaveLogin(username, LoginPassword);
+                }
+                else
+                    sdauth::ForgetSavedLogin();
+
                 sdauth::ResetStatus();
                 TAB = 1;
                 alphaColor = 0.f;
@@ -88,29 +105,37 @@ void Loader::ui::Render()
             c.ShadowText(135, 195, fonts::Sansation_Bold, 40, "LOGIN", colors::White, colors::MainColor);
 
             c.InputText("USERNAME", "USERNAME", 135, 246, 250, LoginUsername, sizeof(LoginUsername), 0);
-            c.InputText("PASSWORD", "PASSWORD", 135, 280, 250, LoginPassword, sizeof(LoginPassword), ImGuiInputTextFlags_Password);
-            c.InputText("LICENSE KEY", "LICENSE KEY", 135, 314, 250, LoginKey, sizeof(LoginKey), 0);
+            c.InputText("PASSWORD", "PASSWORD", 135, 282, 250, LoginPassword, sizeof(LoginPassword), ImGuiInputTextFlags_Password);
+
+            ImGui::PushFont(fonts::Inter_Regular);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.07f, 0.07f, 0.07f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.12f, 0.12f, 0.12f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.12f, 0.12f, 0.12f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_CheckMark, colors::MainColor);
+            ImGui::PushStyleColor(ImGuiCol_Text, colors::Gray);
+            ImGui::SetCursorPos({ 135, 322 });
+            ImGui::Checkbox("Save password", &SavePassword);
+            ImGui::PopStyleColor(5);
+            ImGui::PopFont();
 
             const bool working = sdauth::LoginStatus() == sdauth::StatusWorking;
-            if (c.Button("Login", working ? "Signing in..." : "Sign in", 135, 352, 250, 30) && !working)
+            if (c.Button("Login", working ? "Signing in..." : "Sign in", 135, 346, 250, 30) && !working)
             {
                 const std::string username = LowerUsername(LoginUsername);
                 std::string error;
 
                 if (!sdauth::ValidateUsername(username, error))
                     sdauth::ReportLocalError(error);
-                else if (std::string(LoginPassword).size() < 8)
-                    sdauth::ReportLocalError("Password must be at least 8 characters");
-                else if (std::string(LoginKey).empty())
-                    sdauth::ReportLocalError("Enter your license key");
+                else if (std::string(LoginPassword).size() < 3)
+                    sdauth::ReportLocalError("Password must be at least 3 characters");
                 else
-                    sdauth::StartLogin(username, LoginPassword, LoginKey);
+                    sdauth::StartLogin(username, LoginPassword);
             }
 
             const int status = sdauth::LoginStatus();
             const std::string message = sdauth::LoginMessage();
             if (!message.empty() && (status == sdauth::StatusError || status == sdauth::StatusWorking))
-                c.Text(135, 388, fonts::Inter_Regular, 14, message.c_str(), status == sdauth::StatusError ? colors::Red : colors::lwhite);
+                c.Text(135, 390, fonts::Inter_Regular, 14, message.c_str(), status == sdauth::StatusError ? colors::Red : colors::lwhite);
         }
 
         if (TAB == 1)
@@ -123,12 +148,7 @@ void Loader::ui::Render()
             if (sdauth::HasSession())
             {
                 const sdauth::Session session = sdauth::GetSession();
-                std::string info = session.username;
-                if (session.license.days_left > 0)
-                    info += "  -  " + std::to_string(session.license.days_left) + " days left";
-                else if (session.license.days_left == 0)
-                    info += "  -  expires today";
-                c.Text(window::size_max.x - 200, 64, fonts::Inter_Regular, 14, info.c_str(), colors::lwhite);
+                c.Text(window::size_max.x - 200, 64, fonts::Inter_Regular, 14, session.username.c_str(), colors::lwhite);
             }
 
             if (c.Tab("HOME", "Home", NULL, 180, 28, ImGui::CalcTextSize("Home").x, ImGui::CalcTextSize("Home").y, subtab == 0)) { subtab = 0; }

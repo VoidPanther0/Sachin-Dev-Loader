@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <winhttp.h>
 #include <bcrypt.h>
+#include <wincrypt.h>
 
 #include <atomic>
 #include <cctype>
@@ -16,6 +17,7 @@
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "crypt32.lib")
 
 #ifndef WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2
 #define WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 0x00000800
@@ -48,7 +50,7 @@ sdauth::Session g_session;
 std::string g_hwid;
 
 long long NowSeconds() {
-	return static_cast<long long>(GetTickCount64() / 1000);
+	return static_cast<long long>(std::time(nullptr));
 }
 
 void SetStatus(int status, const std::string& message) {
@@ -112,6 +114,53 @@ std::string JsonEscape(const std::string& text) {
 		}
 	}
 	return out;
+}
+
+// ------------------------------------------------------------ saved login ----
+
+std::wstring LoginStorePath() {
+	wchar_t base[MAX_PATH] = {};
+	const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+	std::wstring directory = (length > 0 && length < MAX_PATH) ? std::wstring(base, length) : std::wstring(L".");
+	directory += L"\\SachinDevLoader";
+	CreateDirectoryW(directory.c_str(), nullptr);
+	return directory + L"\\login.dat";
+}
+
+bool WriteAllBytes(const std::wstring& path, const unsigned char* data, DWORD size) {
+	HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE)
+		return false;
+
+	DWORD written = 0;
+	const bool ok = WriteFile(file, data, size, &written, nullptr) != FALSE && written == size;
+	CloseHandle(file);
+
+	if (!ok)
+		DeleteFileW(path.c_str());
+	return ok;
+}
+
+bool ReadAllBytes(const std::wstring& path, std::vector<unsigned char>& data) {
+	HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE)
+		return false;
+
+	LARGE_INTEGER size = {};
+	if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 16384) {
+		CloseHandle(file);
+		return false;
+	}
+
+	data.resize(static_cast<std::size_t>(size.QuadPart));
+
+	DWORD read = 0;
+	const bool ok = ReadFile(file, &data[0], static_cast<DWORD>(data.size()), &read, nullptr) != FALSE && read == data.size();
+	CloseHandle(file);
+
+	if (!ok)
+		data.clear();
+	return ok;
 }
 
 // ---------------------------------------------------------------- hashing ----
@@ -317,18 +366,14 @@ std::string MapLoginError(int status, const std::string& code, const std::string
 	return "Login failed. Try again";
 }
 
-std::string MapLicenseError(const std::string& code) {
-	if (code == "invalid_key") return "License key is wrong";
-	if (code == "license_disabled") return "License key is disabled";
-	if (code == "license_expired") return "License key has expired";
-	if (code == "license_in_use") return "License key is used by another account";
-	if (code == "hwid_mismatch") return "License locked to another device";
+std::string MapAccountError(const std::string& code) {
+	if (code == "hwid_mismatch") return "Account locked to another device";
 	if (code == "rate_limited") return "Too many attempts. Wait a few minutes";
 	if (code == "banned") return "Account is banned";
-	if (code == "no_license") return "No license is bound to this account";
-	if (code == "invalid_input") return "Fill in every field";
+	if (code == "no_account") return "Account not found. Contact the seller";
+	if (code == "invalid_input") return "Hardware check failed";
 	if (code == "not_authenticated") return "Session expired, sign in again";
-	return "License check failed";
+	return "Login check failed";
 }
 
 // ------------------------------------------------------------------ login ----
@@ -352,7 +397,7 @@ bool ParseSession(const std::string& body, const std::string& username, sdauth::
 	return true;
 }
 
-bool ParseLicense(const std::string& body, sdauth::Session& session, std::string& error) {
+bool ParseAccount(const std::string& body, std::string& username, std::string& error) {
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root)) {
 		error = "Bad server answer";
@@ -360,22 +405,15 @@ bool ParseLicense(const std::string& body, sdauth::Session& session, std::string
 	}
 
 	if (!root.get_bool("ok", false)) {
-		error = MapLicenseError(root.get_string("error"));
+		error = MapAccountError(root.get_string("error"));
 		return false;
 	}
 
-	const jsonlite::Value* license = root.find("license");
-	if (license) {
-		session.license.label = license->get_string("label");
-		session.license.key_prefix = license->get_string("key_prefix");
-		session.license.expires_at = license->get_string("expires_at");
-		session.license.days_left = static_cast<int>(license->get_number("days_left", 0));
-		session.license.hwid = license->get_string("hwid");
-	}
+	username = root.get_string("username");
 	return true;
 }
 
-void RunLogin(std::string username, std::string password, std::string key, std::string hwid) {
+void RunLogin(std::string username, std::string password, std::string hwid) {
 	const std::string token_body =
 		"{\"email\":\"" + JsonEscape(username + "@" + kEmailDomain) + "\",\"password\":\"" + JsonEscape(password) + "\"}";
 
@@ -394,29 +432,31 @@ void RunLogin(std::string username, std::string password, std::string key, std::
 		return;
 	}
 
-	const std::string license_body =
-		"{\"p_key\":\"" + JsonEscape(key) + "\",\"p_hwid\":\"" + JsonEscape(hwid) + "\"}";
+	const std::string check_body = "{\"p_hwid\":\"" + JsonEscape(hwid) + "\"}";
+	const HttpResponse check = HttpPost(ApiUrl(L"/rest/v1/rpc/account_login"), AuthHeaders(session.access_token), check_body);
 
-	const HttpResponse license = HttpPost(ApiUrl(L"/rest/v1/rpc/claim_license"), AuthHeaders(session.access_token), license_body);
-
-	if (!license.transport_ok) {
-		SetStatus(sdauth::StatusError, license.error.empty() ? "Cannot reach the server" : license.error);
+	if (!check.transport_ok) {
+		SetStatus(sdauth::StatusError, check.error.empty() ? "Cannot reach the server" : check.error);
 		return;
 	}
 
 	std::string error;
-	if (license.status != 200 || !ParseLicense(license.body, session, error)) {
+	std::string checked_username;
+	if (check.status != 200 || !ParseAccount(check.body, checked_username, error)) {
 		if (error.empty()) {
 			std::string code, message;
-			ReadErrorBody(license.body, license.status, code, message);
-			error = message.empty() ? "License check failed" : message;
+			ReadErrorBody(check.body, check.status, code, message);
+			error = message.empty() ? "Login check failed" : message;
 		}
 		SetStatus(sdauth::StatusError, error);
 		return;
 	}
 
+	if (!checked_username.empty())
+		session.username = checked_username;
+
 	SetSession(session);
-	SetStatus(sdauth::StatusOk, "Welcome back, " + username);
+	SetStatus(sdauth::StatusOk, "Welcome back, " + session.username);
 }
 
 // --------------------------------------------------------------- heartbeat ----
@@ -441,7 +481,6 @@ bool RefreshSession() {
 	if (!ParseSession(response.body, current.username, refreshed))
 		return false;
 
-	refreshed.license = current.license;
 	SetSession(refreshed);
 	return true;
 }
@@ -470,34 +509,32 @@ void RunHeartbeat() {
 		current = g_session;
 	}
 
-	const HttpResponse response = HttpPost(ApiUrl(L"/rest/v1/rpc/license_status"), AuthHeaders(current.access_token), "{}");
+	if (!current.valid) {
+		g_busy.store(false);
+		return;
+	}
 
-	std::string error;
-	sdauth::Session probe = current;
+	const std::string body = "{\"p_hwid\":\"" + JsonEscape(MachineHwid()) + "\"}";
+	const HttpResponse response = HttpPost(ApiUrl(L"/rest/v1/rpc/account_status"), AuthHeaders(current.access_token), body);
+
 	if (!response.transport_ok) {
 		g_busy.store(false); // network hiccup: keep the session, retry later
 		return;
 	}
 
-	if (response.status != 200 || !ParseLicense(response.body, probe, error)) {
+	std::string error;
+	std::string checked_username;
+	if (response.status != 200 || !ParseAccount(response.body, checked_username, error)) {
+		if (error.empty()) {
+			std::string code, message;
+			ReadErrorBody(response.body, response.status, code, message);
+			error = message.empty() ? "Session check failed" : message;
+		}
+
 		sdauth::SignOut();
-		SetStatus(sdauth::StatusError, error.empty() ? "License check failed. Sign in again" : error);
-		g_busy.store(false);
-		return;
+		SetStatus(sdauth::StatusError, error.empty() ? "Session check failed. Sign in again" : error);
 	}
 
-	probe.valid = true;
-	probe.access_token = current.access_token;
-	probe.refresh_token = current.refresh_token;
-	probe.expires_at = current.expires_at;
-	probe.username = current.username;
-
-	if (!sdauth::HasSession()) { // signed out while the heartbeat was in flight
-		g_busy.store(false);
-		return;
-	}
-
-	SetSession(probe);
 	g_busy.store(false);
 }
 
@@ -524,15 +561,15 @@ void Tick() {
 	std::thread([]() { RunHeartbeat(); }).detach();
 }
 
-void StartLogin(const std::string& username, const std::string& password, const std::string& license_key) {
+void StartLogin(const std::string& username, const std::string& password) {
 	if (g_busy.exchange(true))
 		return;
 
 	const std::string hwid = MachineHwid();
 	SetStatus(StatusWorking, "Signing in...");
 
-	std::thread([username, password, license_key, hwid]() {
-		RunLogin(username, password, license_key, hwid);
+	std::thread([username, password, hwid]() {
+		RunLogin(username, password, hwid);
 		g_busy.store(false);
 	}).detach();
 }
@@ -630,6 +667,54 @@ bool ValidateUsername(const std::string& username, std::string& error) {
 		}
 	}
 	return true;
+}
+
+bool SaveLogin(const std::string& username, const std::string& password) {
+	const std::string json =
+		"{\"u\":\"" + JsonEscape(username) + "\",\"p\":\"" + JsonEscape(password) + "\"}";
+
+	DATA_BLOB input = {};
+	input.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(json.data()));
+	input.cbData = static_cast<DWORD>(json.size());
+
+	DATA_BLOB output = {};
+	if (!CryptProtectData(&input, L"SachinDevLoader login", nullptr, nullptr, nullptr,
+		CRYPTPROTECT_UI_FORBIDDEN, &output))
+		return false;
+
+	const bool ok = WriteAllBytes(LoginStorePath(), output.pbData, output.cbData);
+	LocalFree(output.pbData);
+	return ok;
+}
+
+bool LoadSavedLogin(SavedLogin& saved) {
+	std::vector<unsigned char> encrypted;
+	if (!ReadAllBytes(LoginStorePath(), encrypted))
+		return false;
+
+	DATA_BLOB input = {};
+	input.pbData = &encrypted[0];
+	input.cbData = static_cast<DWORD>(encrypted.size());
+
+	DATA_BLOB output = {};
+	if (!CryptUnprotectData(&input, nullptr, nullptr, nullptr, nullptr,
+		CRYPTPROTECT_UI_FORBIDDEN, &output))
+		return false;
+
+	const std::string json(reinterpret_cast<const char*>(output.pbData), output.cbData);
+	LocalFree(output.pbData);
+
+	jsonlite::Value root;
+	if (!jsonlite::Parse(json, root))
+		return false;
+
+	saved.username = root.get_string("u");
+	saved.password = root.get_string("p");
+	return !saved.username.empty();
+}
+
+void ForgetSavedLogin() {
+	DeleteFileW(LoginStorePath().c_str());
 }
 
 } // namespace sdauth
