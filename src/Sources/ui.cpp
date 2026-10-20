@@ -420,7 +420,7 @@ void pill(const Rect& r, const char* label, ImU32 color)
 void chip(const Rect& r, const char* label)
 {
 	box(r, theme.panel2, height(r) * 0.5f, theme.line, 1.0f);
-	text_center(font.micro, 9.0f, r, theme.muted);
+	text_center(font.micro, 9.0f, r, theme.muted, label);
 }
 
 void switch_visual(const Rect& r, float t)
