@@ -13,6 +13,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #pragma comment(lib, "winhttp.lib")
@@ -43,7 +44,8 @@ const std::size_t kMaxResponseBytes = 256 * 1024;
 
 std::mutex g_mutex;
 std::atomic<int> g_status(static_cast<int>(sdauth::StatusIdle));
-std::atomic<bool> g_busy(false);
+std::atomic<bool> g_login_busy(false);
+std::atomic<bool> g_heartbeat_busy(false);
 std::atomic<long long> g_next_check(0);
 std::string g_message;
 sdauth::Session g_session;
@@ -64,6 +66,28 @@ void SetStatus(int status, const std::string& message) {
 void SetSession(const sdauth::Session& session) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_session = session;
+}
+
+// Replaces the session only if it is still the same one the caller started
+// with. SignOut() clears g_session, so an in-flight refresh cannot restore a
+// session after the user signed out.
+bool ReplaceSession(const std::string& expected_refresh, const sdauth::Session& session) {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	if (!g_session.valid || g_session.refresh_token != expected_refresh)
+		return false;
+	g_session = session;
+	return true;
+}
+
+template <typename Fn>
+bool StartDetached(Fn&& work) {
+	try {
+		std::thread(std::forward<Fn>(work)).detach();
+		return true;
+	}
+	catch (...) {
+		return false;
+	}
 }
 
 // ----------------------------------------------------------------- utf-8 ----
@@ -123,11 +147,17 @@ std::wstring LoginStorePath() {
 	const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
 	std::wstring directory = (length > 0 && length < MAX_PATH) ? std::wstring(base, length) : std::wstring(L".");
 	directory += L"\\SachinDevLoader";
-	CreateDirectoryW(directory.c_str(), nullptr);
+
+	if (!CreateDirectoryW(directory.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+		return std::wstring();
+
 	return directory + L"\\login.dat";
 }
 
 bool WriteAllBytes(const std::wstring& path, const unsigned char* data, DWORD size) {
+	if (path.empty())
+		return false;
+
 	HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (file == INVALID_HANDLE_VALUE)
 		return false;
@@ -142,6 +172,9 @@ bool WriteAllBytes(const std::wstring& path, const unsigned char* data, DWORD si
 }
 
 bool ReadAllBytes(const std::wstring& path, std::vector<unsigned char>& data) {
+	if (path.empty())
+		return false;
+
 	HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (file == INVALID_HANDLE_VALUE)
 		return false;
@@ -291,7 +324,7 @@ HttpResponse HttpPost(const std::wstring& url, const std::vector<std::wstring>& 
 
 			std::string chunk(available, '\0');
 			DWORD read = 0;
-			if (!WinHttpReadData(request, &chunk[0], available, &read))
+			if (!WinHttpReadData(request, &chunk[0], available, &read) || read == 0)
 				break;
 
 			chunk.resize(read);
@@ -481,8 +514,7 @@ bool RefreshSession() {
 	if (!ParseSession(response.body, current.username, refreshed))
 		return false;
 
-	SetSession(refreshed);
-	return true;
+	return ReplaceSession(current.refresh_token, refreshed);
 }
 
 void RunHeartbeat() {
@@ -493,14 +525,20 @@ void RunHeartbeat() {
 	}
 
 	if (!current.valid) {
-		g_busy.store(false);
+		g_heartbeat_busy.store(false);
 		return;
 	}
 
 	if (current.expires_at - 60 <= static_cast<long long>(std::time(nullptr)) && !RefreshSession()) {
+		const sdauth::Session latest = sdauth::GetSession();
+		if (!latest.valid || latest.refresh_token != current.refresh_token) {
+			g_heartbeat_busy.store(false);
+			return;
+		}
+
 		sdauth::SignOut();
 		SetStatus(sdauth::StatusError, "Session expired. Sign in again");
-		g_busy.store(false);
+		g_heartbeat_busy.store(false);
 		return;
 	}
 
@@ -510,7 +548,7 @@ void RunHeartbeat() {
 	}
 
 	if (!current.valid) {
-		g_busy.store(false);
+		g_heartbeat_busy.store(false);
 		return;
 	}
 
@@ -518,7 +556,7 @@ void RunHeartbeat() {
 	const HttpResponse response = HttpPost(ApiUrl(L"/rest/v1/rpc/account_status"), AuthHeaders(current.access_token), body);
 
 	if (!response.transport_ok) {
-		g_busy.store(false); // network hiccup: keep the session, retry later
+		g_heartbeat_busy.store(false); // network hiccup: keep the session, retry later
 		return;
 	}
 
@@ -531,11 +569,17 @@ void RunHeartbeat() {
 			error = message.empty() ? "Session check failed" : message;
 		}
 
+		const sdauth::Session latest = sdauth::GetSession();
+		if (!latest.valid || latest.access_token != current.access_token) {
+			g_heartbeat_busy.store(false);
+			return;
+		}
+
 		sdauth::SignOut();
 		SetStatus(sdauth::StatusError, error.empty() ? "Session check failed. Sign in again" : error);
 	}
 
-	g_busy.store(false);
+	g_heartbeat_busy.store(false);
 }
 
 } // namespace
@@ -554,24 +598,48 @@ void Tick() {
 	if (now < g_next_check.load())
 		return;
 
-	if (g_busy.exchange(true))
+	if (g_heartbeat_busy.exchange(true))
 		return;
 
 	g_next_check.store(now + kHeartbeatSeconds);
-	std::thread([]() { RunHeartbeat(); }).detach();
+
+	const bool started = StartDetached([]() {
+		try {
+			RunHeartbeat();
+		}
+		catch (...) {
+			SetStatus(StatusError, "Session check failed");
+		}
+		g_heartbeat_busy.store(false);
+	});
+
+	if (!started) {
+		g_heartbeat_busy.store(false);
+		SetStatus(StatusError, "Cannot start the session worker");
+	}
 }
 
 void StartLogin(const std::string& username, const std::string& password) {
-	if (g_busy.exchange(true))
+	if (g_login_busy.exchange(true))
 		return;
 
 	const std::string hwid = MachineHwid();
 	SetStatus(StatusWorking, "Signing in...");
 
-	std::thread([username, password, hwid]() {
-		RunLogin(username, password, hwid);
-		g_busy.store(false);
-	}).detach();
+	const bool started = StartDetached([username, password, hwid]() {
+		try {
+			RunLogin(username, password, hwid);
+		}
+		catch (...) {
+			SetStatus(StatusError, "Login failed");
+		}
+		g_login_busy.store(false);
+	});
+
+	if (!started) {
+		g_login_busy.store(false);
+		SetStatus(StatusError, "Cannot start the login worker");
+	}
 }
 
 int LoginStatus() {
@@ -611,26 +679,36 @@ void SignOut() {
 
 	// Revoke the session in the background, never block the render loop.
 	const std::string token = current.access_token;
-	std::thread([token]() {
-		HttpPost(ApiUrl(L"/auth/v1/logout"), AuthHeaders(token), "{}");
-	}).detach();
+	StartDetached([token]() {
+		try {
+			HttpPost(ApiUrl(L"/auth/v1/logout"), AuthHeaders(token), "{}");
+		}
+		catch (...) {
+		}
+	});
 }
 
 const std::string& MachineHwid() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	if (g_hwid.empty()) {
+		// Best-effort stable fingerprint. Every read is optional; a failed read
+		// contributes an empty field instead of aborting the login.
 		DWORD volume_serial = 0;
-		GetVolumeInformationW(L"C:\\", nullptr, 0, &volume_serial, nullptr, nullptr, nullptr, 0);
+		if (!GetVolumeInformationW(L"C:\\", nullptr, 0, &volume_serial, nullptr, nullptr, nullptr, 0))
+			volume_serial = 0;
 
 		wchar_t computer_name[256] = {};
 		DWORD computer_name_size = 255;
-		GetComputerNameW(computer_name, &computer_name_size);
+		if (!GetComputerNameW(computer_name, &computer_name_size))
+			computer_name[0] = L'\0';
 
 		wchar_t cpu_name[256] = {};
 		DWORD cpu_size = sizeof(cpu_name);
 		HKEY cpu_key = nullptr;
 		if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &cpu_key) == ERROR_SUCCESS) {
-			RegQueryValueExW(cpu_key, L"ProcessorNameString", nullptr, nullptr, reinterpret_cast<LPBYTE>(cpu_name), &cpu_size);
+			DWORD type = 0;
+			if (RegQueryValueExW(cpu_key, L"ProcessorNameString", nullptr, &type, reinterpret_cast<LPBYTE>(cpu_name), &cpu_size) != ERROR_SUCCESS || type != REG_SZ)
+				cpu_name[0] = L'\0';
 			RegCloseKey(cpu_key);
 		}
 

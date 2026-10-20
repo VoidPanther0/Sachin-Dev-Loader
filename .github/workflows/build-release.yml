@@ -22,28 +22,6 @@ jobs:
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install DirectX SDK headers and libraries
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $version = "9.29.952.8"
-          $work = Join-Path $env:RUNNER_TEMP "dxsdk"
-          $pkg = Join-Path $work "pkg"
-          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-          $nupkg = Join-Path $work "dxsdk.zip"
-          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.dxsdk.d3dx/$version/microsoft.dxsdk.d3dx.$version.nupkg" -OutFile $nupkg
-          Expand-Archive -Path $nupkg -DestinationPath $pkg -Force
-
-          $native = Join-Path $pkg "build\native"
-          $sdk = Join-Path $env:GITHUB_WORKSPACE ".dxsdk"
-          New-Item -ItemType Directory -Force -Path (Join-Path $sdk "Lib\x64"), (Join-Path $sdk "Bin\x64") | Out-Null
-          Copy-Item (Join-Path $native "include") (Join-Path $sdk "Include") -Recurse -Force
-          Copy-Item (Join-Path $native "release\lib\x64\*") (Join-Path $sdk "Lib\x64") -Force
-          Copy-Item (Join-Path $native "release\bin\x64\*") (Join-Path $sdk "Bin\x64") -Force
-
-          "DXSDK_DIR=$sdk" >> $env:GITHUB_ENV
-          "DXSDK_BIN=$(Join-Path $sdk 'Bin\x64')" >> $env:GITHUB_ENV
-
       - name: Build Release x64
         run: msbuild SachinDevLoader.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
 
@@ -55,14 +33,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
           $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "SachinDevLoader.exe" |
-            Where-Object { $_.FullName -notmatch "\\\.dxsdk\\" } |
             Select-Object -First 1
           if (-not $exe) { throw "SachinDevLoader.exe was not produced by the build." }
 
           Copy-Item $exe.FullName (Join-Path $dist "SachinDevLoader.exe") -Force
-          Copy-Item (Join-Path $env:DXSDK_BIN "d3dx11_43.dll") $dist -Force
-          Copy-Item (Join-Path $env:DXSDK_BIN "D3DCompiler_43.dll") $dist -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE "README.md") $dist -Force
+
+          $hash = (Get-FileHash (Join-Path $dist "SachinDevLoader.exe") -Algorithm SHA256).Hash
+          "$hash  SachinDevLoader.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
 
           $refName = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
           $zip = Join-Path $dist "SachinDevLoader-$refName-win64.zip"

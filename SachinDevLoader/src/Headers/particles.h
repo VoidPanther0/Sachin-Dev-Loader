@@ -1,5 +1,6 @@
 #pragma once
 #include "core.h"
+#include <cstdlib>
 #include <vector>
 
 struct Particle
@@ -30,7 +31,7 @@ void InitializeParticles()
 
 void UpdateParticles(float deltaTime)
 {
-    for (int i = 0; i < particles.size(); ++i)
+    for (std::size_t i = 0; i < particles.size(); ++i)
     {
         particles[i].position.y += particles[i].velocity.y * deltaTime * 60.0f;
 
@@ -44,7 +45,7 @@ void UpdateParticles(float deltaTime)
 
 void RenderParticles()
 {
-    for (int i = 0; i < particles.size(); ++i)
+    for (std::size_t i = 0; i < particles.size(); ++i)
     {
         ImGui::GetWindowDrawList()->AddCircleFilled(particles[i].position, particles[i].size, particles[i].color);
     }
