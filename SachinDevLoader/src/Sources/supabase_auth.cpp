@@ -514,7 +514,7 @@ void RunHeartbeat() {
 		return;
 	}
 
-	const std::string body = "{\"p_hwid\":\"" + JsonEscape(MachineHwid()) + "\"}";
+	const std::string body = "{\"p_hwid\":\"" + JsonEscape(sdauth::MachineHwid()) + "\"}";
 	const HttpResponse response = HttpPost(ApiUrl(L"/rest/v1/rpc/account_status"), AuthHeaders(current.access_token), body);
 
 	if (!response.transport_ok) {
