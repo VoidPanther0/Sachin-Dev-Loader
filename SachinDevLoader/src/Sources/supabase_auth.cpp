@@ -492,7 +492,7 @@ void RunHeartbeat() {
 	probe.expires_at = current.expires_at;
 	probe.username = current.username;
 
-	if (!HasSession()) { // signed out while the heartbeat was in flight
+	if (!sdauth::HasSession()) { // signed out while the heartbeat was in flight
 		g_busy.store(false);
 		return;
 	}
