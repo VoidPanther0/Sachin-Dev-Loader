@@ -45,10 +45,8 @@ Index of this file:
 #include <stddef.h>     // intptr_t
 #else
 #include <stdint.h>     // intptr_t
-#include "core.h"
 #endif
 #include <map>
-#include <string>
 
 //-------------------------------------------------------------------------
 // Warnings
@@ -964,12 +962,6 @@ void ImGui::Scrollbar(ImGuiAxis axis)
 // - We handle both horizontal and vertical scrollbars, which makes the terminology not ideal.
 // Still, the code should probably be made simpler..
 
-
-#include <map>
-
-// Define una variable global para almacenar la posici�n anterior del desplazamiento
-static std::map<ImGuiID, float> previous_scroll_v_map;
-
 bool ImGui::ScrollbarEx(const ImRect& bb_frame, ImGuiID id, ImGuiAxis axis, ImS64* p_scroll_v, ImS64 size_avail_v, ImS64 size_contents_v, ImDrawFlags flags)
 {
     ImGuiContext& g = *GImGui;
@@ -1034,16 +1026,8 @@ bool ImGui::ScrollbarEx(const ImRect& bb_frame, ImGuiID id, ImGuiAxis axis, ImS6
 
         // Apply scroll (p_scroll_v will generally point on one member of window->Scroll)
         // It is ok to modify Scroll here because we are being called in Begin() after the calculation of ContentSize and before setting up our starting position
-        const float scroll_v_norm = ImSaturate((clicked_v_norm - g.ScrollbarClickDeltaToGrabCenter - grab_h_norm) / (1.0f - grab_h_norm));
-
-        // Apply interpolation for smooth scrolling
-        float previous_scroll_v = previous_scroll_v_map[id];
-        float current_scroll_v = scroll_v_norm * scroll_max;
-        float interpolated_scroll_v = previous_scroll_v + (current_scroll_v - previous_scroll_v) * 0.1f; // 0.1f is the interpolation factor (adjust as needed)
-        *p_scroll_v = (ImS64)interpolated_scroll_v;
-
-        // Update previous_scroll_v_map
-        previous_scroll_v_map[id] = interpolated_scroll_v;
+        const float scroll_v_norm = ImSaturate((clicked_v_norm - g.ScrollbarClickDeltaToGrabCenter - grab_h_norm * 0.5f) / (1.0f - grab_h_norm));
+        *p_scroll_v = (ImS64)(scroll_v_norm * scroll_max);
 
         // Update values for rendering
         scroll_ratio = ImSaturate((float)*p_scroll_v / (float)scroll_max);
@@ -1056,8 +1040,8 @@ bool ImGui::ScrollbarEx(const ImRect& bb_frame, ImGuiID id, ImGuiAxis axis, ImS6
 
     // Render
     const ImU32 bg_col = GetColorU32(ImGuiCol_ScrollbarBg);
-    const ImU32 grab_col = GetColorU32(colors::MainColor);
-
+    const ImU32 grab_col = GetColorU32(held ? ImGuiCol_ScrollbarGrabActive : hovered ? ImGuiCol_ScrollbarGrabHovered : ImGuiCol_ScrollbarGrab, alpha);
+    window->DrawList->AddRectFilled(bb_frame.Min, bb_frame.Max, bg_col, window->WindowRounding, flags);
     ImRect grab_rect;
     if (axis == ImGuiAxis_X)
         grab_rect = ImRect(ImLerp(bb.Min.x, bb.Max.x, grab_v_norm), bb.Min.y, ImLerp(bb.Min.x, bb.Max.x, grab_v_norm) + grab_h_pixels, bb.Max.y);

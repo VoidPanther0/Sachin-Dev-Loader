@@ -77,6 +77,8 @@ void ShowError(const wchar_t* message)
 
 } // namespace
 
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
 	if (ImGui::GetCurrentContext() != nullptr && ImGui::GetIO().BackendPlatformUserData != nullptr)

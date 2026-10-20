@@ -114,7 +114,7 @@ struct Fonts
 {
 	ImFont* micro = nullptr;
 	ImFont* tiny = nullptr;
-	ImFont* small = nullptr;
+	ImFont* small_font = nullptr;
 	ImFont* body = nullptr;
 	ImFont* bold = nullptr;
 	ImFont* medium = nullptr;
@@ -166,7 +166,7 @@ void load_fonts()
 {
 	font.micro = load_font("segoeui.ttf", 10.0f);
 	font.tiny = load_font("segoeui.ttf", 11.0f);
-	font.small = load_font("segoeui.ttf", 13.0f);
+	font.small_font = load_font("segoeui.ttf", 13.0f);
 	font.body = load_font("segoeui.ttf", 15.0f);
 	font.bold = load_font("segoeuib.ttf", 15.0f);
 	font.medium = load_font("segoeui.ttf", 18.0f);
@@ -377,7 +377,7 @@ bool button(const char* id, const Rect& r, const char* label, bool primary, Icon
 
 	const ImU32 label_color = primary ? rgba(255, 255, 255) : mix(theme.muted, theme.text, t);
 	const float label_size = 13.0f;
-	const float label_width = text_width(font.small, label_size, label);
+	const float label_width = text_width(font.small_font, label_size, label);
 	const float icon_size = glyph == Icon::None ? 0.0f : 14.0f;
 	const float gap = glyph == Icon::None ? 0.0f : 7.0f;
 	const float total = label_width + icon_size + gap;
@@ -387,7 +387,7 @@ bool button(const char* id, const Rect& r, const char* label, bool primary, Icon
 	if (glyph != Icon::None)
 		icon(glyph, ImVec2(start_x + icon_size * 0.5f, center_y), icon_size, label_color);
 
-	text(font.small, label_size, ImVec2(start_x + icon_size + gap, center_y - label_size * 0.5f - 1.0f), label_color, label);
+	text(font.small_font, label_size, ImVec2(start_x + icon_size + gap, center_y - label_size * 0.5f - 1.0f), label_color, label);
 	return clicked;
 }
 
@@ -461,7 +461,7 @@ bool nav_item(int index, const char* label, Icon glyph, const Rect& r)
 	const ImU32 label_color = selected ? theme.text : mix(theme.dim, theme.text, t);
 
 	icon(glyph, ImVec2(r.min.x + 24.0f, r.min.y + height(r) * 0.5f), 16.0f, glyph_color);
-	text(font.small, 13.0f, ImVec2(r.min.x + 44.0f, r.min.y + height(r) * 0.5f - 7.0f), label_color, label);
+	text(font.small_font, 13.0f, ImVec2(r.min.x + 44.0f, r.min.y + height(r) * 0.5f - 7.0f), label_color, label);
 
 	if (selected)
 		ImGui::GetWindowDrawList()->AddCircleFilled(
@@ -573,7 +573,7 @@ void draw_sidebar()
 	box(status, theme.panel, 12.0f, theme.line, 1.0f);
 
 	draw->AddCircleFilled(ImVec2(38, 538), 3.5f, theme.green);
-	text(font.small, 12.0f, ImVec2(48, 530), theme.text, "UI READY");
+	text(font.small_font, 12.0f, ImVec2(48, 530), theme.text, "UI READY");
 	text(font.micro, 9.0f, ImVec2(36, 552), theme.muted, "Local preview build");
 
 	draw->AddLine(ImVec2(36, 576), ImVec2(196, 576), theme.line);
@@ -642,7 +642,7 @@ void page_dashboard()
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 
 	text(font.title_bold, 27.0f, ImVec2(260, 92), theme.text, "Dashboard");
-	text(font.small, 12.0f, ImVec2(260, 129), theme.muted,
+	text(font.small_font, 12.0f, ImVec2(260, 129), theme.muted,
 		"Welcome back. Pick a title and build your loadout.");
 
 	pill(rect(900, 100, 1092, 134), "ALL SYSTEMS ONLINE", theme.green);
@@ -664,7 +664,7 @@ void page_dashboard()
 	const float title_width = text_width(font.display, 32.0f, "SACHIN DEV");
 	text(font.display, 32.0f, ImVec2(288 + title_width + 8, 190), accent(), "LOADER");
 
-	text(font.small, 12.0f, ImVec2(288, 242), theme.muted,
+	text(font.small_font, 12.0f, ImVec2(288, 242), theme.muted,
 		"A clean launcher interface built for speed.");
 
 	if (button("##launch_loader", rect(288, 278, 458, 316), "LAUNCH LOADER", true, Icon::Play))
@@ -820,7 +820,7 @@ void profile_row(int index, const char* label, float y, float x, float w)
 		selected ? alpha(accent(), 0.28f) : (t > 0.01f ? theme.line : 0),
 		1.0f);
 
-	text(font.small, 12.0f, ImVec2(row.min.x + 11.0f, row.min.y + 9.0f),
+	text(font.small_font, 12.0f, ImVec2(row.min.x + 11.0f, row.min.y + 9.0f),
 		selected ? theme.text : theme.muted, label);
 
 	if (selected)
@@ -837,7 +837,7 @@ void page_loader()
 	const Game& game = kGames[game_index];
 
 	text(font.title_bold, 27.0f, ImVec2(260, 92), theme.text, "Loader");
-	text(font.small, 12.0f, ImVec2(260, 129), theme.muted,
+	text(font.small_font, 12.0f, ImVec2(260, 129), theme.muted,
 		"Configure modules for your selected title.");
 
 	if (button("##back", rect(1000, 96, 1092, 130), "BACK", false, Icon::Arrow))
@@ -859,7 +859,7 @@ void page_loader()
 
 	text(font.hero, 48.0f, ImVec2(292, 196), alpha(rgba(255, 255, 255), 0.9f), game.mark);
 	text(font.title_bold, 23.0f, ImVec2(292, 250), theme.text, game.name);
-	text(font.small, 10.0f, ImVec2(292, 282), theme.muted, game.tag);
+	text(font.small_font, 10.0f, ImVec2(292, 282), theme.muted, game.tag);
 
 	pill(rect(642, 194, 748, 224), "READY", theme.green);
 
@@ -899,7 +899,7 @@ void page_loader()
 	const char* status_text = state.loading
 		? "Preparing module..."
 		: (state.load >= 0.999f ? "Module ready" : "Ready to load");
-	text_center(font.small, 11.0f, rect(810, 316, 1082, 336), theme.muted, status_text);
+	text_center(font.small_font, 11.0f, rect(810, 316, 1082, 336), theme.muted, status_text);
 
 	const char* button_label = state.loading ? "LOADING" : (state.load >= 0.999f ? "RELOAD" : "LOAD GAME");
 	if (button("##load_game", rect(820, 344, 1072, 382), button_label, true, Icon::Bolt))
@@ -916,7 +916,7 @@ void page_loader()
 	box(profile, theme.panel, 16.0f, theme.line, 1.0f);
 
 	text(font.micro, 9.0f, ImVec2(820, 432), theme.dim, "PROFILE");
-	text(font.small, 11.0f, ImVec2(820, 450), theme.muted, "Visual configuration");
+	text(font.small_font, 11.0f, ImVec2(820, 450), theme.muted, "Visual configuration");
 
 	profile_row(0, "Default", 472.0f, 820.0f, 252.0f);
 	profile_row(1, "Performance", 508.0f, 820.0f, 252.0f);
@@ -981,7 +981,7 @@ void page_settings()
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 
 	text(font.title_bold, 27.0f, ImVec2(260, 92), theme.text, "Settings");
-	text(font.small, 12.0f, ImVec2(260, 129), theme.muted,
+	text(font.small_font, 12.0f, ImVec2(260, 129), theme.muted,
 		"Tune the interface to match your setup.");
 
 	const Rect accent_card = rect(260, 166, 656, 428);
@@ -990,7 +990,7 @@ void page_settings()
 
 	text(font.micro, 9.0f, ImVec2(284, 186), theme.dim, "ACCENT COLOR");
 	text(font.medium_bold, 17.0f, ImVec2(284, 204), theme.text, "Interface color");
-	text(font.small, 11.0f, ImVec2(284, 232), theme.muted,
+	text(font.small_font, 11.0f, ImVec2(284, 232), theme.muted,
 		"Used for highlights, buttons and active states.");
 
 	for (int i = 0; i < 4; ++i)
@@ -1025,7 +1025,7 @@ void page_settings()
 	text(font.medium_bold, 18.0f, ImVec2(284, 486), theme.text, "Sachin Dev Loader");
 	text(font.micro, 8.0f, ImVec2(284, 514), theme.dim, "VERSION 2.0.0  /  UI BUILD");
 
-	text(font.small, 11.0f, ImVec2(284, 536), theme.muted,
+	text(font.small_font, 11.0f, ImVec2(284, 536), theme.muted,
 		"Pure interface build. No network calls, no process access, no hardware IDs.");
 
 	chip(rect(284, 566, 344, 590), "LOCAL");

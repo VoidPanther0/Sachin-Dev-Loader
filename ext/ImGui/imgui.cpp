@@ -927,7 +927,6 @@ CODE
 #define IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
 #endif
 #endif
-#include "settings.h"
 // [Apple] OS specific includes
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -975,7 +974,6 @@ CODE
 #pragma GCC diagnostic ignored "-Wclass-memaccess"          // [__GNUC__ >= 8] warning: 'memset/memcpy' clearing/writing an object of type 'xxxx' with no trivial copy-assignment; use assignment or value-initialization instead
 #endif
 
-#include <map>
 // Debug options
 #define IMGUI_DEBUG_NAV_SCORING     0   // Display navigation scoring preview when hovering items. Display last moving direction matches when holding CTRL
 #define IMGUI_DEBUG_NAV_RECTS       0   // Display the reference navigation rectangle for each window
@@ -1794,7 +1792,6 @@ const char* ImStrSkipBlank(const char* str)
 #else
 #include "stb_sprintf.h"
 #endif
-#include <map>
 #endif
 
 #if defined(_MSC_VER) && !defined(vsnprintf)
@@ -5291,8 +5288,6 @@ bool ImGui::BeginChildEx(const char* name, ImGuiID id, const ImVec2& size_arg, b
 bool ImGui::BeginChild(const char* str_id, const ImVec2& size_arg, bool border, ImGuiWindowFlags extra_flags)
 {
     ImGuiWindow* window = GetCurrentWindow();
-
-    //ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10, 10));
     return BeginChildEx(str_id, window->GetID(str_id), size_arg, border, extra_flags);
 }
 
@@ -5306,7 +5301,7 @@ void ImGui::EndChild()
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
-    PopStyleVar();
+
     IM_ASSERT(g.WithinEndChild == false);
     IM_ASSERT(window->Flags & ImGuiWindowFlags_ChildWindow);   // Mismatched BeginChild()/EndChild() calls
 
@@ -6563,37 +6558,9 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
         window->ScrollMax.x = ImMax(0.0f, window->ContentSize.x + window->WindowPadding.x * 2.0f - window->InnerRect.GetWidth());
         window->ScrollMax.y = ImMax(0.0f, window->ContentSize.y + window->WindowPadding.y * 2.0f - window->InnerRect.GetHeight());
 
-        float needed_scroll = CalcNextScrollFromScrollTargetAndClamp(window).y;
-        window->ScrollTarget = ImVec2(window->ScrollTarget.x, window->ScrollTarget.y + g.NextWindowData.ScrollVal.y);
-
-        const ImGuiID id = window->GetID(name);
-
-        static std::map<ImGuiID, float> anim;
-        auto it_anim = anim.find(id);
-
-        if (it_anim == anim.end())
-        {
-            anim.insert({ id, 0.f });
-            it_anim = anim.find(id);
-        }
-
-        if (it_anim->second < needed_scroll)
-            it_anim->second += abs(needed_scroll - it_anim->second) / 15.f * (1.f - g.IO.DeltaTime);
-        else if (it_anim->second > needed_scroll)
-            it_anim->second -= abs(needed_scroll - it_anim->second) / 15.f * (1.f - g.IO.DeltaTime);
-
-        if (!ImGui::IsMouseDown(0))
-        {
-            if (window->Scroll.y != needed_scroll)
-            {
-                window->Scroll.y = it_anim->second;
-            }
-        }
-        else
-        {
-            window->Scroll = CalcNextScrollFromScrollTargetAndClamp(window);
-            window->ScrollTarget = ImVec2(FLT_MAX, FLT_MAX);
-        }
+        // Apply scrolling
+        window->Scroll = CalcNextScrollFromScrollTargetAndClamp(window);
+        window->ScrollTarget = ImVec2(FLT_MAX, FLT_MAX);
         window->DecoInnerSizeX1 = window->DecoInnerSizeY1 = 0.0f;
 
         // DRAWING
@@ -9641,9 +9608,7 @@ void ImGui::BeginGroup()
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
-    auto s = ImGui::GetStyle();
-    
-    s.Alpha = alphaColor;
+
     g.GroupStack.resize(g.GroupStack.Size + 1);
     ImGuiGroupData& group_data = g.GroupStack.back();
     group_data.WindowID = window->ID;
