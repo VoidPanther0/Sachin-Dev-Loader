@@ -64,7 +64,8 @@ jobs:
           Copy-Item (Join-Path $env:DXSDK_BIN "D3DCompiler_43.dll") $dist -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE "README.md") $dist -Force
 
-          $zip = Join-Path $dist "SachinDevLoader-$env:GITHUB_REF_NAME-win64.zip"
+          $refName = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
+          $zip = Join-Path $dist "SachinDevLoader-$refName-win64.zip"
           Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -Force
           "Built $zip" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
