@@ -104,10 +104,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)ext\;$(ProjectDir)src\Headers\;$(DXSDK_DIR)Include;$(ProjectDir)ext\misc\;$(ProjectDir)ext\ImGui\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(DXSDK_DIR)/Lib/x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;winhttp.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -126,8 +130,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)ext;$(DXSDK_DIR)\Lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;library_x64.lib;libcurl.lib;normaliz.lib;ws2_32.lib;crypt32.lib;wldap32.lib;secur32.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(DXSDK_DIR)\Lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;winhttp.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -139,11 +143,10 @@
     <ClCompile Include="ext\ImGui\imgui_widgets.cpp" />
     <ClCompile Include="src\Sources\loader.cpp" />
     <ClCompile Include="src\Sources\main.cpp" />
+    <ClCompile Include="src\Sources\supabase_auth.cpp" />
     <ClCompile Include="src\Sources\ui.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ext\auth.hpp" />
-    <ClInclude Include="ext\skStr.h" />
     <ClInclude Include="src\Headers\font_awesome.h" />
     <ClInclude Include="ext\ImGui\imconfig.h" />
     <ClInclude Include="ext\ImGui\imgui.h" />
@@ -158,6 +161,8 @@
     <ClInclude Include="src\Headers\core.h" />
     <ClInclude Include="src\Headers\particles.h" />
     <ClInclude Include="src\Headers\settings.h" />
+    <ClInclude Include="src\Headers\json_lite.h" />
+    <ClInclude Include="src\Headers\supabase_auth.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

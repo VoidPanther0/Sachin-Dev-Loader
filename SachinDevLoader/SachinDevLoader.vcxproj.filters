@@ -39,6 +39,9 @@
     <ClCompile Include="src\Sources\loader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="src\Sources\supabase_auth.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="src\Sources\ui.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -80,16 +83,16 @@
     <ClInclude Include="src\Headers\settings.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
+    <ClInclude Include="src\Headers\json_lite.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Headers\supabase_auth.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
     <ClInclude Include="src\Headers\images.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="src\Headers\particles.h">
-      <Filter>Archivos de encabezado</Filter>
-    </ClInclude>
-    <ClInclude Include="ext\auth.hpp">
-      <Filter>Archivos de encabezado</Filter>
-    </ClInclude>
-    <ClInclude Include="ext\skStr.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
   </ItemGroup>

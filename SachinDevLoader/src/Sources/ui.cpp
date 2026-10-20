@@ -4,32 +4,25 @@
 #include "fonts.h"
 #include "images.h"
 #include "particles.h"
+#include "supabase_auth.h"
 
 #include <algorithm>
-
-#include "auth.hpp"
-#include "skStr.h"
+#include <cctype>
+#include <string>
 
 Loader::CUSTOM c;
 Loader::GUI g;
 
-using namespace KeyAuth;
-
-//FILL THIS UP WITH YOUR CREDENTIALS
-
-std::string name = skCrypt("").decrypt(); // Application Name
-std::string ownerid = skCrypt("").decrypt(); // Owner ID
-std::string secret = skCrypt("").decrypt(); // Application Secret
-std::string version = skCrypt("").decrypt();; // Application Version
-std::string url = skCrypt("https://keyauth.win/api/1.2/").decrypt(); // change if you're self-hosting
-std::string path = skCrypt("").decrypt(); // (OPTIONAL) see tutorial here https://www.youtube.com/watch?v=I9rxt821gMk&t=1s
-
-api KeyAuthApp(name, ownerid, secret, version, url, path);
+std::string LowerUsername(const char* input)
+{
+    std::string value = input ? input : "";
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+}
 
 void Loader::ui::BeforeLoop()
 {
-    //name.clear(); ownerid.clear(); secret.clear(); version.clear(); url.clear();
-    //KeyAuthApp.init();
+    sdauth::Init();
 
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_16_FA, 0 };
@@ -55,6 +48,15 @@ void Loader::ui::BeforeLoop()
 
 void Loader::ui::Render()
 {
+    sdauth::Tick();
+
+    if (TAB == 1 && sdauth::LoginStatus() == sdauth::StatusError)
+    {
+        sdauth::SignOut();
+        TAB = 0;
+        alphaColor = 0.f;
+    }
+
     g.begin("Main Window", window::size_max);
     {
         UpdateParticles(0.03);
@@ -74,16 +76,41 @@ void Loader::ui::Render()
 
         if (TAB == 0)
         {
+            if (sdauth::LoginStatus() == sdauth::StatusOk && sdauth::HasSession())
+            {
+                sdauth::ResetStatus();
+                TAB = 1;
+                alphaColor = 0.f;
+            }
+
             alphaColor = std::clamp(alphaColor + (1.f * ImGui::GetIO().DeltaTime * 1.f), 0.0f, 1.f);
             c.ShadowText(135, 120, fonts::Sansation_Bold, 65, "SACHIN DEV", colors::White, colors::MainColor);
             c.ShadowText(135, 195, fonts::Sansation_Bold, 40, "LOGIN", colors::White, colors::MainColor);
 
-            c.InputText("KEY", "LICENSE KEY", 135, 250, 250, License, 50, 0);
-            if (c.Button("Login", "Sign in", 135, 300, 250, 30)) 
-            { 
-                //KeyAuthApp.license(License);
-                /*if (KeyAuthApp.response.success)*/ { TAB = 1; alphaColor = 0; }
+            c.InputText("USERNAME", "USERNAME", 135, 246, 250, LoginUsername, sizeof(LoginUsername), 0);
+            c.InputText("PASSWORD", "PASSWORD", 135, 280, 250, LoginPassword, sizeof(LoginPassword), ImGuiInputTextFlags_Password);
+            c.InputText("LICENSE KEY", "LICENSE KEY", 135, 314, 250, LoginKey, sizeof(LoginKey), 0);
+
+            const bool working = sdauth::LoginStatus() == sdauth::StatusWorking;
+            if (c.Button("Login", working ? "Signing in..." : "Sign in", 135, 352, 250, 30) && !working)
+            {
+                const std::string username = LowerUsername(LoginUsername);
+                std::string error;
+
+                if (!sdauth::ValidateUsername(username, error))
+                    sdauth::ReportLocalError(error);
+                else if (std::string(LoginPassword).size() < 8)
+                    sdauth::ReportLocalError("Password must be at least 8 characters");
+                else if (std::string(LoginKey).empty())
+                    sdauth::ReportLocalError("Enter your license key");
+                else
+                    sdauth::StartLogin(username, LoginPassword, LoginKey);
             }
+
+            const int status = sdauth::LoginStatus();
+            const std::string message = sdauth::LoginMessage();
+            if (!message.empty() && (status == sdauth::StatusError || status == sdauth::StatusWorking))
+                c.Text(135, 388, fonts::Inter_Regular, 14, message.c_str(), status == sdauth::StatusError ? colors::Red : colors::lwhite);
         }
 
         if (TAB == 1)
@@ -92,6 +119,17 @@ void Loader::ui::Render()
 
             alphaColor = std::clamp(alphaColor + (1.f * ImGui::GetIO().DeltaTime * 1.f), 0.0f, 1.f);
             window->DrawList->AddLine({ 165, 28 }, { 165, 42 }, ImGui::GetColorU32(colors::White));
+
+            if (sdauth::HasSession())
+            {
+                const sdauth::Session session = sdauth::GetSession();
+                std::string info = session.username;
+                if (session.license.days_left > 0)
+                    info += "  -  " + std::to_string(session.license.days_left) + " days left";
+                else if (session.license.days_left == 0)
+                    info += "  -  expires today";
+                c.Text(window::size_max.x - 200, 64, fonts::Inter_Regular, 14, info.c_str(), colors::lwhite);
+            }
 
             if (c.Tab("HOME", "Home", NULL, 180, 28, ImGui::CalcTextSize("Home").x, ImGui::CalcTextSize("Home").y, subtab == 0)) { subtab = 0; }
 

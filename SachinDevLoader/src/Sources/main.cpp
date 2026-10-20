@@ -1,7 +1,5 @@
 #include "core.h"
 #include "settings.h"
-#include "auth.hpp"
-#include "skStr.h"
 
 // Data
 bool CreateDeviceD3D(HWND hWnd);

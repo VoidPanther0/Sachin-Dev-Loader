@@ -12,7 +12,9 @@ const wchar_t project_name[] = L"Sachin Dev";
 inline int TAB = 0;
 inline int subtab = 0;
 
-inline char License[50];
+inline char LoginUsername[32];
+inline char LoginPassword[64];
+inline char LoginKey[64];
 
 inline float alphaColor = 0.f;
 
