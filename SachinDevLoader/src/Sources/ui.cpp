@@ -52,10 +52,15 @@ void Loader::ui::BeforeLoop()
 	icons_config.OversampleH = 3;
 	icons_config.OversampleV = 3;
 
-	if (fonts::Inter_Regular == nullptr) fonts::Inter_Regular = io.Fonts->AddFontFromMemoryTTF(inter_regular_p, static_cast<int>(sizeof(inter_regular_p)), 16);
-	if (fonts::Sansation_Light == nullptr) fonts::Sansation_Light = io.Fonts->AddFontFromMemoryTTF(sansation_light_p, static_cast<int>(sizeof(sansation_light_p)), 13);
-	if (fonts::Sansation_Regular == nullptr) fonts::Sansation_Regular = io.Fonts->AddFontFromMemoryTTF(sansation_regular_p, static_cast<int>(sizeof(sansation_regular_p)), 25);
-	if (fonts::Sansation_Bold == nullptr) fonts::Sansation_Bold = io.Fonts->AddFontFromMemoryTTF(sansation_bold_p, static_cast<int>(sizeof(sansation_bold_p)), 28);
+	// The TTF byte arrays are static, so the atlas must copy them instead of
+	// taking ownership and freeing them during shutdown.
+	ImFontConfig text_config;
+	text_config.FontDataOwnedByAtlas = false;
+
+	if (fonts::Inter_Regular == nullptr) fonts::Inter_Regular = io.Fonts->AddFontFromMemoryTTF(inter_regular_p, static_cast<int>(sizeof(inter_regular_p)), 16, &text_config);
+	if (fonts::Sansation_Light == nullptr) fonts::Sansation_Light = io.Fonts->AddFontFromMemoryTTF(sansation_light_p, static_cast<int>(sizeof(sansation_light_p)), 13, &text_config);
+	if (fonts::Sansation_Regular == nullptr) fonts::Sansation_Regular = io.Fonts->AddFontFromMemoryTTF(sansation_regular_p, static_cast<int>(sizeof(sansation_regular_p)), 25, &text_config);
+	if (fonts::Sansation_Bold == nullptr) fonts::Sansation_Bold = io.Fonts->AddFontFromMemoryTTF(sansation_bold_p, static_cast<int>(sizeof(sansation_bold_p)), 28, &text_config);
 	if (fonts::FontAwesome == nullptr) fonts::FontAwesome = io.Fonts->AddFontFromMemoryCompressedTTF(fa6_solid_compressed_data, static_cast<int>(fa6_solid_compressed_size), 14.f, &icons_config, icons_ranges);
 
 	InitializeParticles();

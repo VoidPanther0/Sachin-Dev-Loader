@@ -34,7 +34,7 @@ Release builds use the static C++ runtime, so the executable does not need the V
 msbuild SachinDevLoader.sln /m /p:Configuration=Release /p:Platform=x64
 ```
 
-The executable is written under `SachinDevLoader\x64\Release\`.
+The executable is written under `x64\Release\` at the repository root.
 
 For a debug build:
 

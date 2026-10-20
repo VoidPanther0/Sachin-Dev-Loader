@@ -16,6 +16,7 @@ void Loader::GUI::begin(const char* name, ImVec2 size)
 
 	s.WindowRounding = window::rounding;
 	s.Alpha = 1.f;
+	style();
 
 	ImGui::Begin(name, nullptr, window_flags);
 	ImGui::SetWindowSize(size);
@@ -24,7 +25,6 @@ void Loader::GUI::begin(const char* name, ImVec2 size)
 		{ 0, 0 }, ImVec2(size.x - 1, size.y - 1),
 		ImGui::GetColorU32(colors::bg), window::rounding);
 
-	style();
 	mw();
 }
 

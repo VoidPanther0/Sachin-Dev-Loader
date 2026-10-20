@@ -54,6 +54,7 @@ std::atomic<long long> g_next_check(0);
 std::string g_message;
 sdauth::Session g_session;
 std::string g_hwid;
+bool g_hwid_ready = false;
 
 long long NowSeconds() {
 	return static_cast<long long>(std::time(nullptr));
@@ -101,6 +102,9 @@ std::string WideToUtf8(const std::wstring& text) {
 		return std::string();
 
 	const int size = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+	if (size <= 0)
+		return std::string();
+
 	std::string out(static_cast<std::size_t>(size), '\0');
 	WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), &out[0], size, nullptr, nullptr);
 	return out;
@@ -111,6 +115,9 @@ std::wstring Utf8ToWide(const std::string& text) {
 		return std::wstring();
 
 	const int size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0);
+	if (size <= 0)
+		return std::wstring();
+
 	std::wstring out(static_cast<std::size_t>(size), L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), &out[0], size);
 	return out;
@@ -695,7 +702,7 @@ void SignOut() {
 
 const std::string& MachineHwid() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	if (g_hwid.empty()) {
+	if (!g_hwid_ready) {
 		// Best-effort stable fingerprint. Every read is optional; a failed read
 		// contributes an empty field instead of aborting the login.
 		DWORD volume_serial = 0;
@@ -706,6 +713,7 @@ const std::string& MachineHwid() {
 		DWORD computer_name_size = 255;
 		if (!GetComputerNameW(computer_name, &computer_name_size))
 			computer_name[0] = L'\0';
+		computer_name[255] = L'\0';
 
 		wchar_t cpu_name[256] = {};
 		DWORD cpu_size = sizeof(cpu_name);
@@ -714,6 +722,7 @@ const std::string& MachineHwid() {
 			DWORD type = 0;
 			if (RegQueryValueExW(cpu_key, L"ProcessorNameString", nullptr, &type, reinterpret_cast<LPBYTE>(cpu_name), &cpu_size) != ERROR_SUCCESS || type != REG_SZ)
 				cpu_name[0] = L'\0';
+			cpu_name[255] = L'\0';
 			RegCloseKey(cpu_key);
 		}
 
@@ -731,6 +740,7 @@ const std::string& MachineHwid() {
 			c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
 
 		g_hwid = formatted;
+		g_hwid_ready = true;
 	}
 	return g_hwid;
 }
@@ -784,7 +794,9 @@ bool LoadSavedLogin(SavedLogin& saved) {
 		CRYPTPROTECT_UI_FORBIDDEN, &output))
 		return false;
 
-	const std::string json(reinterpret_cast<const char*>(output.pbData), output.cbData);
+	std::string json;
+	if (output.pbData && output.cbData > 0)
+		json.assign(reinterpret_cast<const char*>(output.pbData), output.cbData);
 	LocalFree(output.pbData);
 
 	jsonlite::Value root;
