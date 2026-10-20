@@ -45,7 +45,7 @@ Index of this file:
 #include <stddef.h>     // intptr_t
 #else
 #include <stdint.h>     // intptr_t
-#include "main.h"
+#include "core.h"
 #endif
 #include <map>
 #include <string>
@@ -967,7 +967,7 @@ void ImGui::Scrollbar(ImGuiAxis axis)
 
 #include <map>
 
-// Define una variable global para almacenar la posición anterior del desplazamiento
+// Define una variable global para almacenar la posiciï¿½n anterior del desplazamiento
 static std::map<ImGuiID, float> previous_scroll_v_map;
 
 bool ImGui::ScrollbarEx(const ImRect& bb_frame, ImGuiID id, ImGuiAxis axis, ImS64* p_scroll_v, ImS64 size_avail_v, ImS64 size_contents_v, ImDrawFlags flags)
