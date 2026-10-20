@@ -47,11 +47,11 @@ msbuild SachinDevLoader.sln /m /p:Configuration=Debug /p:Platform=x64
 Push a version tag:
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
-The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches `SachinDevLoader-v1.0.2-win64.zip` to the GitHub Release. The zip contains the executable, this README, and `SHA256SUMS.txt`.
+The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches `SachinDevLoader-v0.5.0-win64.zip` to the GitHub Release. The zip contains the executable, this README, and `SHA256SUMS.txt`.
 
 ## Security notes
 
