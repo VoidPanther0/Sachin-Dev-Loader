@@ -1,5 +1,10 @@
 #pragma once
 #include <cstddef>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <d3d11.h>
 #include <windows.h>
 #include <dwmapi.h>

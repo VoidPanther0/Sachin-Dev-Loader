@@ -32,7 +32,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	try
 	{
-		HINSTANCE instance = GetModuleHandleW(nullptr);
+		HINSTANCE instance = hInstance;
 		HICON icon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_APPICON));
 		if (!icon)
 			icon = LoadIconW(nullptr, IDI_APPLICATION);

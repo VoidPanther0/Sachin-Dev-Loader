@@ -1,6 +1,10 @@
 #include "supabase_auth.h"
 #include "json_lite.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <windows.h>
 #include <winhttp.h>
 #include <bcrypt.h>
@@ -188,7 +192,7 @@ bool ReadAllBytes(const std::wstring& path, std::vector<unsigned char>& data) {
 	data.resize(static_cast<std::size_t>(size.QuadPart));
 
 	DWORD read = 0;
-	const bool ok = ReadFile(file, &data[0], static_cast<DWORD>(data.size()), &read, nullptr) != FALSE && read == data.size();
+	const bool ok = ReadFile(file, &data[0], static_cast<DWORD>(data.size()), &read, nullptr) != FALSE && static_cast<std::size_t>(read) == data.size();
 	CloseHandle(file);
 
 	if (!ok)
