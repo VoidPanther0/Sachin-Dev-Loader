@@ -1,22 +1,26 @@
 # Sachin Dev Loader
 
-A small Windows desktop client built with C++20, Win32, DirectX 11, and Dear ImGui.
+A Windows desktop interface built with C++20, Win32, DirectX 11, and Dear ImGui.
 
-## What it does
+This repository is a **UI-only build**. It contains no account system, network client, hardware fingerprinting, process interaction, or game integration. Every control is local and visual.
 
-- Username and password sign-in through Supabase Auth
-- Optional saved login, encrypted with Windows DPAPI for the current Windows user
-- Background session refresh and account status check
-- A simple account dashboard
+## Interface
+
+- Frameless 1120x700 dark dashboard
+- Dashboard, Loader, and Settings pages
+- Custom-drawn navigation, cards, buttons, toggles, and load animation
+- Four selectable accent colors
+- System Segoe UI fonts loaded at runtime (no embedded font blobs)
+- Mock load progress for interface preview only
 
 ## What it does not do
 
-- No game integration
-- No process injection, memory reading, or memory writing
-- No MAC address, disk serial, or hardware ID modification
-- No shell execution, WMI, service changes, or registry writes
-
-The application requests no elevation. It runs as the signed-in user.
+- No login, registration, session, or saved credentials
+- No HTTP, WinHTTP, sockets, or Supabase calls
+- No HWID, MAC address, disk serial, or machine fingerprint reads
+- No process enumeration, injection, memory access, or game interaction
+- No shell execution, services, registry writes, or startup persistence
+- No elevation request
 
 ## Requirements
 
@@ -42,27 +46,32 @@ For a debug build:
 msbuild SachinDevLoader.sln /m /p:Configuration=Debug /p:Platform=x64
 ```
 
+## Layout
+
+```
+src/
+  Headers/       core.h, resource.h
+  Resources/     app.ico, version.rc
+  Sources/       main.cpp, ui.cpp
+ext/ImGui/       vendored Dear ImGui 1.89.4
+```
+
+`main.cpp` owns the Win32 window, DirectX 11 device, and render loop. `ui.cpp` owns fonts, colors, layout, and every drawn widget.
+
 ## Release
 
 Push a version tag:
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
-The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches `SachinDevLoader-v0.5.0-win64.zip` to the GitHub Release. The zip contains the executable, this README, and `SHA256SUMS.txt`.
+The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches `SachinDevLoader-v2.0.0-win64.zip` to the GitHub Release. The zip contains the executable, this README, and `SHA256SUMS.txt`.
 
-## Security notes
+## Unsigned builds
 
-- Saved credentials are encrypted with `CryptProtectData` and can only be decrypted by the same Windows user on the same machine.
-- Network traffic uses WinHTTP with the system certificate store and TLS 1.2.
-- The Supabase publishable key is a public client key, not a service-role secret.
-- A best-effort machine fingerprint is used for account binding. Failed hardware reads are treated as empty fields instead of aborting sign-in.
-
-## Code signing
-
-Release builds are unsigned by default. For public distribution, sign the executable with an OV or EV code-signing certificate from a public CA:
+Release builds are unsigned by default. Windows Defender and SmartScreen may treat a new unsigned executable cautiously. Sign with an OV or EV code-signing certificate before public distribution:
 
 ```powershell
 signtool sign /fd SHA256 /f certificate.pfx /p "<password>" `

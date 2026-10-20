@@ -1,109 +1,215 @@
 #include "core.h"
-#include "settings.h"
 #include "resource.h"
 
+#include <dwmapi.h>
 #include <exception>
-
-// Data
-bool CreateDeviceD3D(HWND hWnd);
-void CleanupDeviceD3D();
-bool CreateRenderTarget();
-void CleanupRenderTarget();
-
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-Loader::ui u;
 
 namespace {
 
+bool CreateDeviceD3D(HWND window)
+{
+	DXGI_SWAP_CHAIN_DESC desc{};
+	desc.BufferCount = 2;
+	desc.BufferDesc.Width = 0;
+	desc.BufferDesc.Height = 0;
+	desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.BufferDesc.RefreshRate.Numerator = 60;
+	desc.BufferDesc.RefreshRate.Denominator = 1;
+	desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+	desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	desc.OutputWindow = window;
+	desc.SampleDesc.Count = 1;
+	desc.SampleDesc.Quality = 0;
+	desc.Windowed = TRUE;
+	desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+
+	const D3D_FEATURE_LEVEL levels[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
+	D3D_FEATURE_LEVEL level{};
+
+	HRESULT result = D3D11CreateDeviceAndSwapChain(
+		nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
+		levels, 2, D3D11_SDK_VERSION, &desc,
+		&g_pSwapChain, &g_pd3dDevice, &level, &g_pd3dDeviceContext);
+
+	if (result == DXGI_ERROR_UNSUPPORTED)
+	{
+		result = D3D11CreateDeviceAndSwapChain(
+			nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
+			levels, 2, D3D11_SDK_VERSION, &desc,
+			&g_pSwapChain, &g_pd3dDevice, &level, &g_pd3dDeviceContext);
+	}
+
+	return result == S_OK;
+}
+
+bool CreateRenderTarget()
+{
+	ID3D11Texture2D* back_buffer = nullptr;
+	if (!g_pSwapChain || FAILED(g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&back_buffer))) || !back_buffer)
+		return false;
+
+	const HRESULT result = g_pd3dDevice->CreateRenderTargetView(back_buffer, nullptr, &g_mainRenderTargetView);
+	back_buffer->Release();
+	return SUCCEEDED(result);
+}
+
+void CleanupRenderTarget()
+{
+	if (g_mainRenderTargetView)
+	{
+		g_mainRenderTargetView->Release();
+		g_mainRenderTargetView = nullptr;
+	}
+}
+
+void CleanupDeviceD3D()
+{
+	CleanupRenderTarget();
+	if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = nullptr; }
+	if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = nullptr; }
+	if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = nullptr; }
+}
+
 void ShowError(const wchar_t* message)
 {
-	MessageBoxW(nullptr, message, project_name, MB_ICONERROR | MB_OK);
+	MessageBoxW(nullptr, message, app::kTitle, MB_ICONERROR | MB_OK);
 }
 
 } // namespace
 
-// Main code
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
+LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
-	(void)hPrevInstance;
-	(void)lpCmdLine;
-	(void)nShowCmd;
+	if (ImGui::GetCurrentContext() != nullptr && ImGui::GetIO().BackendPlatformUserData != nullptr)
+	{
+		if (ImGui_ImplWin32_WndProcHandler(window, message, wparam, lparam))
+			return 1;
+	}
+
+	switch (message)
+	{
+	case WM_SYSCOMMAND:
+		if ((wparam & 0xfff0) == SC_KEYMENU)
+			return 0;
+		break;
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return 0;
+	case WM_ERASEBKGND:
+		return 1;
+	default:
+		break;
+	}
+
+	return DefWindowProcW(window, message, wparam, lparam);
+}
+
+void StartWindowDrag()
+{
+	ReleaseCapture();
+	SendMessageW(g_hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+}
+
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, int show_command)
+{
+	(void)previous;
+	(void)command_line;
+	(void)show_command;
 
 	try
 	{
-		HINSTANCE instance = hInstance;
 		HICON icon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_APPICON));
 		if (!icon)
 			icon = LoadIconW(nullptr, IDI_APPLICATION);
 
-		WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, instance, icon,
-			LoadCursorW(nullptr, IDC_ARROW), nullptr, nullptr, project_name, icon };
+		WNDCLASSEXW window_class{};
+		window_class.cbSize = sizeof(window_class);
+		window_class.style = CS_CLASSDC;
+		window_class.lpfnWndProc = WndProc;
+		window_class.hInstance = instance;
+		window_class.hIcon = icon;
+		window_class.hIconSm = icon;
+		window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+		window_class.lpszClassName = L"SachinDevLoaderWindow";
 
-		if (!RegisterClassExW(&wc))
+		if (!RegisterClassExW(&window_class))
 		{
 			ShowError(L"Could not register the window class.");
 			return 1;
 		}
 
-		hwnd = CreateWindowExW(NULL, wc.lpszClassName, project_name, WS_POPUP,
-			(GetSystemMetrics(SM_CXSCREEN) / 2) - static_cast<int>(window::size_max.x / 2),
-			(GetSystemMetrics(SM_CYSCREEN) / 2) - static_cast<int>(window::size_max.y / 2),
-			static_cast<int>(window::size_max.x), static_cast<int>(window::size_max.y),
-			0, 0, hInstance, 0);
+		const int screen_width = GetSystemMetrics(SM_CXSCREEN);
+		const int screen_height = GetSystemMetrics(SM_CYSCREEN);
+		const int width = static_cast<int>(app::kWidth);
+		const int height = static_cast<int>(app::kHeight);
 
-		if (!hwnd)
+		g_hwnd = CreateWindowExW(
+			WS_EX_APPWINDOW,
+			window_class.lpszClassName,
+			app::kTitle,
+			WS_POPUP,
+			(screen_width - width) / 2,
+			(screen_height - height) / 2,
+			width, height,
+			nullptr, nullptr, instance, nullptr);
+
+		if (!g_hwnd)
 		{
-			UnregisterClassW(wc.lpszClassName, wc.hInstance);
+			UnregisterClassW(window_class.lpszClassName, instance);
 			ShowError(L"Could not create the main window.");
 			return 1;
 		}
 
-		SetWindowLongW(hwnd, GWL_EXSTYLE, GetWindowLongW(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
-		SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
+		BOOL dark = TRUE;
+		DwmSetWindowAttribute(g_hwnd, 20, &dark, sizeof(dark));
 
-		MARGINS margins = { -1, -1, -1, -1 };
-		DwmExtendFrameIntoClientArea(hwnd, &margins);
+		const int corner = 2;
+		DwmSetWindowAttribute(g_hwnd, 33, &corner, sizeof(corner));
 
-		rc = { 0, 0, 0, 0 };
-		GetWindowRect(hwnd, &rc);
-
-		if (!CreateDeviceD3D(hwnd))
+		if (!CreateDeviceD3D(g_hwnd))
 		{
 			CleanupDeviceD3D();
-			DestroyWindow(hwnd);
-			UnregisterClassW(wc.lpszClassName, wc.hInstance);
+			DestroyWindow(g_hwnd);
+			UnregisterClassW(window_class.lpszClassName, instance);
 			ShowError(L"Could not initialize Direct3D 11.");
 			return 1;
 		}
 
-		::ShowWindow(hwnd, SW_SHOWDEFAULT);
-		::UpdateWindow(hwnd);
+		if (!CreateRenderTarget())
+		{
+			CleanupDeviceD3D();
+			DestroyWindow(g_hwnd);
+			UnregisterClassW(window_class.lpszClassName, instance);
+			ShowError(L"Could not create the Direct3D render target.");
+			return 1;
+		}
+
+		ShowWindow(g_hwnd, SW_SHOWDEFAULT);
+		UpdateWindow(g_hwnd);
 
 		IMGUI_CHECKVERSION();
 		ImGuiContext* context = ImGui::CreateContext();
 		if (!context)
 		{
 			CleanupDeviceD3D();
-			DestroyWindow(hwnd);
-			UnregisterClassW(wc.lpszClassName, wc.hInstance);
-			ShowError(L"Could not initialize the user interface.");
+			DestroyWindow(g_hwnd);
+			UnregisterClassW(window_class.lpszClassName, instance);
+			ShowError(L"Could not create the interface context.");
 			return 1;
 		}
 
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
+		ImGuiIO& io = ImGui::GetIO();
 		io.IniFilename = nullptr;
+		io.LogFilename = nullptr;
 
-		u.BeforeLoop();
+		app::Init();
 
-		ImGui::StyleColorsDark();
-
-		if (!ImGui_ImplWin32_Init(hwnd))
+		if (!ImGui_ImplWin32_Init(g_hwnd))
 		{
+			app::Shutdown();
 			ImGui::DestroyContext();
 			CleanupDeviceD3D();
-			DestroyWindow(hwnd);
-			UnregisterClassW(wc.lpszClassName, wc.hInstance);
+			DestroyWindow(g_hwnd);
+			UnregisterClassW(window_class.lpszClassName, instance);
 			ShowError(L"Could not initialize the Windows backend.");
 			return 1;
 		}
@@ -111,58 +217,61 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		if (!ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext))
 		{
 			ImGui_ImplWin32_Shutdown();
+			app::Shutdown();
 			ImGui::DestroyContext();
 			CleanupDeviceD3D();
-			DestroyWindow(hwnd);
-			UnregisterClassW(wc.lpszClassName, wc.hInstance);
-			ShowError(L"Could not initialize the Direct3D 11 backend.");
+			DestroyWindow(g_hwnd);
+			UnregisterClassW(window_class.lpszClassName, instance);
+			ShowError(L"Could not initialize the Direct3D backend.");
 			return 1;
 		}
 
-		ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.1f, 0.f);
-
-		bool done = false;
-		while (!done)
+		bool running = true;
+		while (running)
 		{
-			MSG msg;
-			ZeroMemory(&msg, sizeof(msg));
-			while (::PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE))
+			MSG message{};
+			while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
 			{
-				::TranslateMessage(&msg);
-				::DispatchMessageW(&msg);
-				if (msg.message == WM_QUIT)
-					done = true;
+				TranslateMessage(&message);
+				DispatchMessageW(&message);
+				if (message.message == WM_QUIT)
+					running = false;
 			}
-			if (done)
+
+			if (!running)
 				break;
+
+			if (IsIconic(g_hwnd))
+			{
+				Sleep(10);
+				continue;
+			}
 
 			ImGui_ImplDX11_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
-			u.Render();
+			app::Render();
 
 			ImGui::Render();
-			const float clear_color_with_alpha[4] = {
-				clear_color.x * clear_color.w, clear_color.y * clear_color.w,
-				clear_color.z * clear_color.w, clear_color.w };
+
+			const float clear[4] = { 0.027f, 0.027f, 0.035f, 1.0f };
 			g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
-			g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+			g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear);
 			ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-			const HRESULT present = g_pSwapChain->Present(1, 0);
-			if (FAILED(present))
-				done = true;
+			if (FAILED(g_pSwapChain->Present(1, 0)))
+				running = false;
 		}
 
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplWin32_Shutdown();
+		app::Shutdown();
 		ImGui::DestroyContext();
 
 		CleanupDeviceD3D();
-		DestroyWindow(hwnd);
-		UnregisterClassW(wc.lpszClassName, wc.hInstance);
-
+		DestroyWindow(g_hwnd);
+		UnregisterClassW(window_class.lpszClassName, instance);
 		return 0;
 	}
 	catch (const std::exception& error)
@@ -175,86 +284,4 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		ShowError(L"An unexpected error stopped the application.");
 		return 1;
 	}
-}
-
-bool CreateDeviceD3D(HWND hWnd)
-{
-	// Setup swap chain
-	DXGI_SWAP_CHAIN_DESC sd;
-	ZeroMemory(&sd, sizeof(sd));
-	sd.BufferCount = 2;
-	sd.BufferDesc.Width = 0;
-	sd.BufferDesc.Height = 0;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = hWnd;
-	sd.SampleDesc.Count = 1;
-	sd.SampleDesc.Quality = 0;
-	sd.Windowed = TRUE;
-	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-	UINT createDeviceFlags = 0;
-	D3D_FEATURE_LEVEL featureLevel;
-	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
-	HRESULT res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
-	if (res == DXGI_ERROR_UNSUPPORTED) // Try high-performance WARP software driver if hardware is not available.
-		res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
-	if (res != S_OK)
-		return false;
-
-	return CreateRenderTarget();
-}
-
-void CleanupDeviceD3D()
-{
-	CleanupRenderTarget();
-	if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = nullptr; }
-	if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = nullptr; }
-	if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = nullptr; }
-}
-
-bool CreateRenderTarget()
-{
-	ID3D11Texture2D* pBackBuffer = nullptr;
-	if (!g_pSwapChain || FAILED(g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer))) || !pBackBuffer)
-		return false;
-
-	const HRESULT result = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_mainRenderTargetView);
-	pBackBuffer->Release();
-	return SUCCEEDED(result);
-}
-
-void CleanupRenderTarget()
-{
-	if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = nullptr; }
-}
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-	if (ImGui::GetCurrentContext() != nullptr && ImGui::GetIO().BackendPlatformUserData != nullptr)
-	{
-		if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-			return true;
-	}
-
-	switch (msg)
-	{
-	case WM_SIZE:
-		if (wParam == SIZE_MINIMIZED)
-			return 0;
-		break;
-	case WM_SYSCOMMAND:
-		if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
-			return 0;
-		break;
-	case WM_DESTROY:
-		::PostQuitMessage(0);
-		return 0;
-	}
-	return ::DefWindowProcW(hWnd, msg, wParam, lParam);
 }
