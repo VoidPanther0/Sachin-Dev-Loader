@@ -1,5 +1,5 @@
 #pragma once
-#include "main.h"
+#include "core.h"
 #include <vector>
 
 struct Particle

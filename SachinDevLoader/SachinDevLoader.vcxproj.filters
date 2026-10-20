@@ -24,9 +24,6 @@
     <ClCompile Include="ext\ImGui\imgui_draw.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="ext\ImGui\imgui_freetype.cpp">
-      <Filter>Archivos de origen</Filter>
-    </ClCompile>
     <ClCompile Include="ext\ImGui\imgui_impl_dx11.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -39,7 +36,7 @@
     <ClCompile Include="ext\ImGui\imgui_widgets.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="src\Sources\framework.cpp">
+    <ClCompile Include="src\Sources\loader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="src\Sources\ui.cpp">
@@ -47,16 +44,13 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\Headers\main.h">
+    <ClInclude Include="src\Headers\core.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ext\ImGui\imconfig.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ext\ImGui\imgui.h">
-      <Filter>Archivos de encabezado</Filter>
-    </ClInclude>
-    <ClInclude Include="ext\ImGui\imgui_freetype.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ext\ImGui\imgui_impl_dx11.h">
@@ -98,10 +92,5 @@
     <ClInclude Include="ext\skStr.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <Library Include="ext\freetype\win64\freetype.lib" />
-    <Library Include="ext\libcurl.lib" />
-    <Library Include="ext\library_x64.lib" />
   </ItemGroup>
 </Project>

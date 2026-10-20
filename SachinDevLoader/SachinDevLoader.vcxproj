@@ -22,7 +22,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{f6a287e5-756b-47d5-8091-6391d2536f84}</ProjectGuid>
-    <RootNamespace>Framework</RootNamespace>
+    <RootNamespace>SachinDevLoader</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -119,26 +119,25 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>..\Framework\ext\;..\Framework\src\Headers\;C:\Program Files (x86)\Microsoft DirectX SDK (June 2010)\Include;..\Framework\ext\misc\;..\Framework\ext\ImGui\;..\Framework\ext\freetype\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)ext\;$(ProjectDir)src\Headers\;$(DXSDK_DIR)\Include;$(ProjectDir)ext\misc\;$(ProjectDir)ext\ImGui\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(DXSDK_DIR)/Lib/x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)ext;$(DXSDK_DIR)\Lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;library_x64.lib;libcurl.lib;normaliz.lib;ws2_32.lib;crypt32.lib;wldap32.lib;secur32.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ext\ImGui\imgui.cpp" />
     <ClCompile Include="ext\ImGui\imgui_draw.cpp" />
-    <ClCompile Include="ext\ImGui\imgui_freetype.cpp" />
     <ClCompile Include="ext\ImGui\imgui_impl_dx11.cpp" />
     <ClCompile Include="ext\ImGui\imgui_impl_win32.cpp" />
     <ClCompile Include="ext\ImGui\imgui_tables.cpp" />
     <ClCompile Include="ext\ImGui\imgui_widgets.cpp" />
-    <ClCompile Include="src\Sources\framework.cpp" />
+    <ClCompile Include="src\Sources\loader.cpp" />
     <ClCompile Include="src\Sources\main.cpp" />
     <ClCompile Include="src\Sources\ui.cpp" />
   </ItemGroup>
@@ -148,7 +147,6 @@
     <ClInclude Include="src\Headers\font_awesome.h" />
     <ClInclude Include="ext\ImGui\imconfig.h" />
     <ClInclude Include="ext\ImGui\imgui.h" />
-    <ClInclude Include="ext\ImGui\imgui_freetype.h" />
     <ClInclude Include="ext\ImGui\imgui_impl_dx11.h" />
     <ClInclude Include="ext\ImGui\imgui_impl_win32.h" />
     <ClInclude Include="ext\ImGui\imgui_internal.h" />
@@ -157,14 +155,9 @@
     <ClInclude Include="ext\ImGui\imstb_truetype.h" />
     <ClInclude Include="src\Headers\fonts.h" />
     <ClInclude Include="src\Headers\images.h" />
-    <ClInclude Include="src\Headers\main.h" />
+    <ClInclude Include="src\Headers\core.h" />
     <ClInclude Include="src\Headers\particles.h" />
     <ClInclude Include="src\Headers\settings.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <Library Include="ext\freetype\win64\freetype.lib" />
-    <Library Include="ext\libcurl.lib" />
-    <Library Include="ext\library_x64.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

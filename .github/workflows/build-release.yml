@@ -1,0 +1,84 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install DirectX SDK headers and libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "9.29.952.8"
+          $work = Join-Path $env:RUNNER_TEMP "dxsdk"
+          $pkg = Join-Path $work "pkg"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          $nupkg = Join-Path $work "dxsdk.zip"
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.dxsdk.d3dx/$version/microsoft.dxsdk.d3dx.$version.nupkg" -OutFile $nupkg
+          Expand-Archive -Path $nupkg -DestinationPath $pkg -Force
+
+          $native = Join-Path $pkg "build\native"
+          $sdk = Join-Path $env:GITHUB_WORKSPACE ".dxsdk"
+          New-Item -ItemType Directory -Force -Path (Join-Path $sdk "Lib\x64"), (Join-Path $sdk "Bin\x64") | Out-Null
+          Copy-Item (Join-Path $native "include") (Join-Path $sdk "Include") -Recurse -Force
+          Copy-Item (Join-Path $native "release\lib\x64\*") (Join-Path $sdk "Lib\x64") -Force
+          Copy-Item (Join-Path $native "release\bin\x64\*") (Join-Path $sdk "Bin\x64") -Force
+
+          "DXSDK_DIR=$sdk" >> $env:GITHUB_ENV
+          "DXSDK_BIN=$(Join-Path $sdk 'Bin\x64')" >> $env:GITHUB_ENV
+
+      - name: Build Release x64
+        run: msbuild SachinDevLoader.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dist = Join-Path $env:GITHUB_WORKSPACE "dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "SachinDevLoader.exe" |
+            Where-Object { $_.FullName -notmatch "\\\.dxsdk\\" } |
+            Select-Object -First 1
+          if (-not $exe) { throw "SachinDevLoader.exe was not produced by the build." }
+
+          Copy-Item $exe.FullName (Join-Path $dist "SachinDevLoader.exe") -Force
+          Copy-Item (Join-Path $env:DXSDK_BIN "d3dx11_43.dll") $dist -Force
+          Copy-Item (Join-Path $env:DXSDK_BIN "D3DCompiler_43.dll") $dist -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "README.md") $dist -Force
+
+          $zip = Join-Path $dist "SachinDevLoader-$env:GITHUB_REF_NAME-win64.zip"
+          Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -Force
+          "Built $zip" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SachinDevLoader-win64
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true

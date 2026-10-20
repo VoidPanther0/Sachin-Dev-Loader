@@ -1,4 +1,4 @@
-#include "main.h"
+#include "core.h"
 #include "settings.h"
 #include "font_awesome.h"
 #include "fonts.h"
@@ -10,8 +10,8 @@
 #include "auth.hpp"
 #include "skStr.h"
 
-Framework::CUSTOM c;
-Framework::GUI g;
+Loader::CUSTOM c;
+Loader::GUI g;
 
 using namespace KeyAuth;
 
@@ -26,7 +26,7 @@ std::string path = skCrypt("").decrypt(); // (OPTIONAL) see tutorial here https:
 
 api KeyAuthApp(name, ownerid, secret, version, url, path);
 
-void Framework::ui::BeforeLoop()
+void Loader::ui::BeforeLoop()
 {
     //name.clear(); ownerid.clear(); secret.clear(); version.clear(); url.clear();
     //KeyAuthApp.init();
@@ -53,7 +53,7 @@ void Framework::ui::BeforeLoop()
 
 }
 
-void Framework::ui::Render()
+void Loader::ui::Render()
 {
     g.begin("Main Window", window::size_max);
     {
@@ -67,20 +67,19 @@ void Framework::ui::Render()
         static float timer = io.DeltaTime;
 
         c.IconButton("###Close", ICON_FA_XMARK, window::size_max.x - 20, 18 / 2, 1);
-        c.Text(15, 22, fonts::Sansation_Regular, 24, "FLAMMED", colors::White);
-        c.Text(125, 28, fonts::Sansation_Light, 15, "LITE", colors::MainColor);
-        c.Text(window::size_max.x - 120, window::size_max.y - 30, fonts::Inter_Regular, 15, "Made by Baikzz #0", colors::White);
+        c.Text(15, 22, fonts::Sansation_Regular, 24, "SACHIN DEV", colors::White);
+        c.Text(160, 28, fonts::Sansation_Light, 15, "LOADER", colors::MainColor);
+        c.Text(window::size_max.x - 150, window::size_max.y - 30, fonts::Inter_Regular, 15, "Made by Sachin Dev", colors::White);
         s.Alpha = alphaColor;
 
         if (TAB == 0)
         {
             alphaColor = std::clamp(alphaColor + (1.f * ImGui::GetIO().DeltaTime * 1.f), 0.0f, 1.f);
-            c.ShadowText(190, 140, fonts::Sansation_Bold, 100, "FLAMMED", colors::White, colors::MainColor);
-            c.ShadowText(320, 140, fonts::Sansation_Bold, 65, "V3", colors::MainColor, colors::MainColor);
-            c.ShadowText(360, 140, fonts::Sansation_Bold, 100, "LOGIN", colors::White, colors::MainColor);
+            c.ShadowText(135, 120, fonts::Sansation_Bold, 65, "SACHIN DEV", colors::White, colors::MainColor);
+            c.ShadowText(135, 195, fonts::Sansation_Bold, 40, "LOGIN", colors::White, colors::MainColor);
 
-            c.InputText("KEY", "LICENSE KEY", 190, 210, 250, License, 50, 0);
-            if (c.Button("Login", "Sign in", 190, 260, 250, 30)) 
+            c.InputText("KEY", "LICENSE KEY", 135, 250, 250, License, 50, 0);
+            if (c.Button("Login", "Sign in", 135, 300, 250, 30)) 
             { 
                 //KeyAuthApp.license(License);
                 /*if (KeyAuthApp.response.success)*/ { TAB = 1; alphaColor = 0; }

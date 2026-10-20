@@ -43,7 +43,7 @@ namespace items {
 	const float rounding = 2.f;
 }
 
-class Framework {
+class Loader {
 public:
 	class ui {
 	public:

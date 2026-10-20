@@ -1,4 +1,4 @@
-#include "main.h"
+#include "core.h"
 #include "settings.h"
 #include "auth.hpp"
 #include "skStr.h"
@@ -11,8 +11,8 @@ void CleanupRenderTarget();
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-Framework::ui u;
-Framework::CUSTOM cu;
+Loader::ui u;
+Loader::CUSTOM cu;
 ImFontAtlas i;
 
 // Main code

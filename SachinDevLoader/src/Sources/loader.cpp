@@ -1,14 +1,14 @@
 #include <map>
 #include <vector>
 
-#include "main.h"
+#include "core.h"
 #include "settings.h"
 
 DWORD window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground;
 
 //UI ITEMS
 
-void Framework::GUI::begin(const char* name, ImVec2 size)
+void Loader::GUI::begin(const char* name, ImVec2 size)
 {
     ImGuiStyle& s = ImGui::GetStyle();
 
@@ -25,24 +25,24 @@ void Framework::GUI::begin(const char* name, ImVec2 size)
     mw();
 }
 
-void Framework::GUI::end()
+void Loader::GUI::end()
 {
     ImGui::End();
 }
 
-void Framework::GUI::ChildBegin(const char* name, float posX, float posY, float sizeX, float sizeY)
+void Loader::GUI::ChildBegin(const char* name, float posX, float posY, float sizeX, float sizeY)
 {
     auto s = ImGui::GetStyle();
     ImGui::SetNextWindowPos({ posX, posY });
 
     ImGui::BeginChild(name, { sizeX, sizeY });
 }
-void Framework::GUI::ChildEnd() 
+void Loader::GUI::ChildEnd() 
 {
     ImGui::EndChild();
 }
 
-void Framework::GUI::style()
+void Loader::GUI::style()
 {
     ImGuiStyle& style = ImGui::GetStyle();
 
@@ -58,7 +58,7 @@ void Framework::GUI::style()
     style.ItemSpacing = { 10, 15 };
 }
 
-void Framework::GUI::Blur(HWND hwnd)
+void Loader::GUI::Blur(HWND hwnd)
 {
     struct ACCENTPOLICY
     {
@@ -90,25 +90,25 @@ void Framework::GUI::Blur(HWND hwnd)
     }
 }
 
-void Framework::GUI::mw()
+void Loader::GUI::mw()
 {
     GetWindowRect(hwnd, &rc);
     MoveWindow(hwnd, rc.left + ImGui::GetWindowPos().x, rc.top + ImGui::GetWindowPos().y, window::size_max.x, window::size_max.y, TRUE);
     ImGui::SetWindowPos(ImVec2(0.f, 0.f));
 }
 
-void Framework::GUI::pf(ImFont* font)
+void Loader::GUI::pf(ImFont* font)
 {
     ImGui::PushFont(font);
 }
 
-void Framework::GUI::AddImage(ID3D11ShaderResourceView* pic, float posX, float posY, float sizeX, float sizeY)
+void Loader::GUI::AddImage(ID3D11ShaderResourceView* pic, float posX, float posY, float sizeX, float sizeY)
 {
     ImGui::SetCursorPos({ posX, posY });
     ImGui::Image(pic, { sizeX, sizeY });
 }
 
-void Framework::GUI::AddImageRotated(ID3D11ShaderResourceView* pic, float posX, float posY, float sizeX, float sizeY)
+void Loader::GUI::AddImageRotated(ID3D11ShaderResourceView* pic, float posX, float posY, float sizeX, float sizeY)
 {
     auto style = ImGui::GetStyle();
     style.Alpha = alphaColor;
@@ -135,7 +135,7 @@ void CircleImage(ID3D11ShaderResourceView* user_texture_id, const ImVec2& size, 
     ImGui::SetCursorPos(current_cursor_pos);
 }
 
-void Framework::GUI::ApplyImage(int i)
+void Loader::GUI::ApplyImage(int i)
 {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     auto style = ImGui::GetStyle();
@@ -147,7 +147,7 @@ void Framework::GUI::ApplyImage(int i)
     window->DrawList->AddRectFilledMultiColor({ MIN.x, MIN.y }, { MAX.x - 160, MAX.y }, ImGui::GetColorU32(colors::bg), ImColor(0, 0, 0, 0), ImColor(0, 0, 0, 0), ImGui::GetColorU32(colors::bg));
 }
 
-//Framework::CUSTOM ITEMS
+//Loader::CUSTOM ITEMS
 
 struct ButtonState {
     ImVec4 ButtonColor;
@@ -157,7 +157,7 @@ struct ButtonState {
     float timer;
     ButtonState() : ButtonColor(0, 0, 0, 0), BorderColor(0, 0, 0, 0), TextColor(0, 0, 0, 0), timer(0.0f) {}
 };
-bool Framework::CUSTOM::Button(const char* label, const char* text, float posX, float posY, float sizeX, float sizeY) {
+bool Loader::CUSTOM::Button(const char* label, const char* text, float posX, float posY, float sizeX, float sizeY) {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     ImGuiIO& io = ImGui::GetIO();
@@ -207,7 +207,7 @@ struct TabState {
     ImVec4 ShadowColor;
 };
 
-bool Framework::CUSTOM::Tab(const char* label, const char* text, const char* icon, float posX, float posY, float sizeX, float sizeY, bool v)
+bool Loader::CUSTOM::Tab(const char* label, const char* text, const char* icon, float posX, float posY, float sizeX, float sizeY, bool v)
 {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -253,9 +253,9 @@ struct SelectableItemState {
     ImVec4 FilledColor;
 };
 
-bool Framework::CUSTOM::SelectableItem(const char* label, ID3D11ShaderResourceView* pic, float posX, float posY, float sizeX, float sizeY, bool v)
+bool Loader::CUSTOM::SelectableItem(const char* label, ID3D11ShaderResourceView* pic, float posX, float posY, float sizeX, float sizeY, bool v)
 {
-    Framework::GUI gui;
+    Loader::GUI gui;
     ImGuiStyle& style = ImGui::GetStyle();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     ImGuiIO& io = ImGui::GetIO();
@@ -307,7 +307,7 @@ struct Checkbox2State {
     ImVec2 Button_Pos;
 };
 
-bool Framework::CUSTOM::Checkbox2(const char* label, const char* text, float posX, float posY, bool* v, float space)
+bool Loader::CUSTOM::Checkbox2(const char* label, const char* text, float posX, float posY, bool* v, float space)
 {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -369,7 +369,7 @@ struct InputState {
     float Shadow_size;
 };
 
-bool Framework::CUSTOM::InputText(const char* label, const char* hint, float posX, float posY, float sizeX, static char buf[], size_t buf_size, ImGuiInputTextFlags flag)
+bool Loader::CUSTOM::InputText(const char* label, const char* hint, float posX, float posY, float sizeX, static char buf[], size_t buf_size, ImGuiInputTextFlags flag)
 {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -426,7 +426,7 @@ struct IconButtonState {
     ImVec4 TextColor;
 };
 
-bool Framework::CUSTOM::IconButton(const char* label, const char* icon, float posX, float posY, int action)
+bool Loader::CUSTOM::IconButton(const char* label, const char* icon, float posX, float posY, int action)
 {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -478,7 +478,7 @@ bool Framework::CUSTOM::IconButton(const char* label, const char* icon, float po
     return result;
 }
 
-void Framework::CUSTOM::AddBorders(ImVec2 pos)
+void Loader::CUSTOM::AddBorders(ImVec2 pos)
 {
     const int vtx_idx_1 = ImGui::GetWindowDrawList()->VtxBuffer.Size;
     ImGui::GetWindowDrawList()->AddRect(ImVec2(1, 1), ImVec2(pos.x - 1, pos.y - 1), ImGui::GetColorU32(colors::MainColor), window::rounding, ImDrawFlags_None, 2.f);
@@ -487,7 +487,7 @@ void Framework::CUSTOM::AddBorders(ImVec2 pos)
 
 }
 
-void Framework::CUSTOM::Text(float posX, float posY, ImFont* font, float size, const char* text, ImVec4 col)
+void Loader::CUSTOM::Text(float posX, float posY, ImFont* font, float size, const char* text, ImVec4 col)
 {
     ImFont* current = ImGui::GetFont();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -495,7 +495,7 @@ void Framework::CUSTOM::Text(float posX, float posY, ImFont* font, float size, c
     ImGui::PushFont(current);
 }
 
-void Framework::CUSTOM::ShadowText(float posX, float posY, ImFont* font, float size, const char* text, ImVec4 col, ImVec4 shadow_col)
+void Loader::CUSTOM::ShadowText(float posX, float posY, ImFont* font, float size, const char* text, ImVec4 col, ImVec4 shadow_col)
 {
     auto cfont = ImGui::GetFont();
     ImGui::PushFont(font);
