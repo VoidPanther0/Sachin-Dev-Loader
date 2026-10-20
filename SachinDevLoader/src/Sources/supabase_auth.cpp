@@ -615,6 +615,7 @@ void Tick() {
 
 	if (!started) {
 		g_heartbeat_busy.store(false);
+		g_next_check.store(0);
 		SetStatus(StatusError, "Cannot start the session worker");
 	}
 }

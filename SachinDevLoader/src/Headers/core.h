@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <d3d11.h>
 #include <windows.h>
 #include <dwmapi.h>
@@ -43,17 +44,17 @@ public:
 		void end();
 		void mw();
 		void style();
-		void AddBorders(ImVec2 pos);
 	};
 
 	class CUSTOM
 	{
 	public:
 		bool Button(const char* label, const char* text, float posX, float posY, float sizeX, float sizeY);
-		bool InputText(const char* label, const char* hint, float posX, float posY, float sizeX, char buf[], size_t buf_size, ImGuiInputTextFlags flag);
+		bool InputText(const char* label, const char* hint, float posX, float posY, float sizeX, char buf[], std::size_t buf_size, ImGuiInputTextFlags flag);
 		bool IconButton(const char* label, const char* icon, float posX, float posY, int action);
 		void Text(float posX, float posY, ImFont* font, float size, const char* text, ImVec4 col);
 		void ShadowText(float posX, float posY, ImFont* font, float size, const char* text, ImVec4 col, ImVec4 shadow_col);
+		void AddBorders(ImVec2 pos);
 	};
 };
 

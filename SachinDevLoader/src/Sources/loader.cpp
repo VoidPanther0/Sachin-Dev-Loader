@@ -126,7 +126,7 @@ bool Loader::CUSTOM::Button(const char* label, const char* text, float posX, flo
 	return result;
 }
 
-bool Loader::CUSTOM::InputText(const char* label, const char* hint, float posX, float posY, float sizeX, char buf[], size_t buf_size, ImGuiInputTextFlags flag)
+bool Loader::CUSTOM::InputText(const char* label, const char* hint, float posX, float posY, float sizeX, char buf[], std::size_t buf_size, ImGuiInputTextFlags flag)
 {
 	ImGuiWindow* window = ImGui::GetCurrentWindow();
 	ImGuiIO& io = ImGui::GetIO();
