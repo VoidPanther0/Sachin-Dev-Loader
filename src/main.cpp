@@ -1,4 +1,4 @@
-#include "core.h"
+#include "app.h"
 #include "resource.h"
 
 #include <dwmapi.h>
@@ -131,7 +131,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 		window_class.hIcon = icon;
 		window_class.hIconSm = icon;
 		window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-		window_class.lpszClassName = L"SachinDevLoaderWindow";
+		window_class.lpszClassName = L"LoaderWindow";
 
 		if (!RegisterClassExW(&window_class))
 		{
@@ -278,7 +278,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 	}
 	catch (const std::exception& error)
 	{
-		MessageBoxA(nullptr, error.what(), "Sachin Dev Loader", MB_ICONERROR | MB_OK);
+		MessageBoxA(nullptr, error.what(), "Loader", MB_ICONERROR | MB_OK);
 		return 1;
 	}
 	catch (...)

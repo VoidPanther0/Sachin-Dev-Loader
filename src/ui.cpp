@@ -1,4 +1,4 @@
-#include "core.h"
+#include "app.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -215,7 +215,21 @@ void box(const Rect& r, ImU32 fill, float rounding = 14.0f, ImU32 border = 0, fl
 
 void shadow(const Rect& r, float size = 18.0f, ImU32 color = rgba(0, 0, 0, 90))
 {
-	ImGui::GetWindowDrawList()->AddShadowRect(r.min, r.max, color, size, ImVec2(0, 6), 0, 12.0f);
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const ImVec2 offset(0.0f, 6.0f);
+	const int layers = 4;
+
+	for (int i = layers; i >= 1; --i)
+	{
+		const float t = static_cast<float>(i) / static_cast<float>(layers);
+		const float spread = size * 0.5f * t;
+
+		draw->AddRectFilled(
+			ImVec2(r.min.x - spread, r.min.y - spread + offset.y),
+			ImVec2(r.max.x + spread, r.max.y + spread + offset.y),
+			alpha(color, 0.25f * (1.0f - t)),
+			16.0f + spread);
+	}
 }
 
 void text(ImFont* f, float size, ImVec2 position, ImU32 color, const char* value)
@@ -1054,7 +1068,6 @@ void app::Init()
 	ImGuiIO& io = ImGui::GetIO();
 	io.IniFilename = nullptr;
 	io.LogFilename = nullptr;
-	io.Fonts->TexDesiredWidth = 2048;
 
 	load_fonts();
 

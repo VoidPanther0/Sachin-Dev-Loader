@@ -1,82 +1,117 @@
-# Sachin Dev Loader
+# Sachin Dev Loader - ImGui Template
 
-A Windows desktop interface built with C++20, Win32, DirectX 11, and Dear ImGui.
+A Windows desktop UI starter built with C++20, Win32, DirectX 11, and Dear ImGui.
 
-This repository is a **UI-only build**. It contains no account system, network client, hardware fingerprinting, process interaction, or game integration. Every control is local and visual.
+Use this repository as a template for a dark, frameless launcher interface. The
+current build is a self-contained UI preview: every control is local and visual.
 
-## Interface
+## Features
 
-- Frameless 1120x700 dark dashboard
+- Frameless 1120x700 window with DWM dark title bar and rounded corners
 - Dashboard, Loader, and Settings pages
-- Custom-drawn navigation, cards, buttons, toggles, and load animation
+- Custom-drawn navigation, cards, buttons, toggles, and progress ring
 - Four selectable accent colors
-- System Segoe UI fonts loaded at runtime (no embedded font blobs)
-- Mock load progress for interface preview only
-
-## What it does not do
-
-- No login, registration, session, or saved credentials
-- No HTTP, WinHTTP, sockets, or Supabase calls
-- No HWID, MAC address, disk serial, or machine fingerprint reads
-- No process enumeration, injection, memory access, or game interaction
-- No shell execution, services, registry writes, or startup persistence
-- No elevation request
+- Animated hover and load states
+- Segoe UI fonts loaded at runtime from the system font directory
+- Static C++ runtime, so the executable does not need the VC++ Redistributable
+- Dear ImGui 1.93.1 vendored in `src/gui` (no submodules, no package manager)
 
 ## Requirements
 
 - Windows 10 or Windows 11
-- Visual Studio 2022 with the Desktop development with C++ workload
+- Visual Studio 2022 with the **Desktop development with C++** workload
 - Windows 10/11 SDK
 
-No legacy DirectX SDK is required. Dear ImGui's Direct3D 11 backend links against the Windows SDK copy of `d3dcompiler`.
-
-Release builds use the static C++ runtime, so the executable does not need the Visual C++ Redistributable on the target machine.
+No legacy DirectX SDK is required. The Direct3D 11 backend links the Windows SDK
+copy of `d3dcompiler`.
 
 ## Build
 
+Open `Loader.sln` in Visual Studio, choose `Release | x64`, and build.
+
+From a terminal:
+
 ```powershell
-msbuild SachinDevLoader.sln /m /p:Configuration=Release /p:Platform=x64
+msbuild Loader.sln /m /p:Configuration=Release /p:Platform=x64
 ```
 
-The executable is written under `x64\Release\` at the repository root.
+The executable is written to `x64\Release\Loader.exe`.
 
 For a debug build:
 
 ```powershell
-msbuild SachinDevLoader.sln /m /p:Configuration=Debug /p:Platform=x64
+msbuild Loader.sln /m /p:Configuration=Debug /p:Platform=x64
 ```
 
 ## Layout
 
 ```
 src/
-  Headers/       core.h, resource.h
-  Resources/     app.ico, version.rc
-  Sources/       main.cpp, ui.cpp
-ext/ImGui/       vendored Dear ImGui 1.89.4
+  main.cpp            Win32 window, Direct3D 11 device, frame loop
+  ui.cpp              Fonts, theme, layout, and every drawn widget
+  app.h               Shared globals and app entry points
+  resource.h          Icon resource identifier
+  Resources/          app.ico, version.rc
+  gui/                Vendored Dear ImGui
+    backends/         Win32 + DirectX 11 platform/renderer backends
+Loader.sln
+Loader.vcxproj
 ```
 
-`main.cpp` owns the Win32 window, DirectX 11 device, and render loop. `ui.cpp` owns fonts, colors, layout, and every drawn widget.
+`main.cpp` owns the window and rendering. `ui.cpp` owns the interface.
+`app::Init`, `app::Render`, and `app::Shutdown` are the only UI entry points.
+
+## Customize
+
+| What                | Where                                              |
+| ------------------- | -------------------------------------------------- |
+| Window title        | `app::kTitle` in `src/app.h`                       |
+| Window size         | `app::kWidth`, `app::kHeight` in `src/app.h`       |
+| Version label       | `app::kVersion` in `src/app.h`                     |
+| Accent colors       | `kAccents` in `src/ui.cpp`                         |
+| Sidebar branding    | `draw_sidebar()` in `src/ui.cpp`                   |
+| Pages and widgets   | `page_dashboard()`, `page_loader()`, `page_settings()` |
+| Fonts and sizes     | `load_fonts()` in `src/ui.cpp`                     |
+| Executable icon     | `src/Resources/app.ico`                            |
+| Version resource    | `src/Resources/version.rc`                         |
+
+To rename the project, rename `Loader.sln`, `Loader.vcxproj`, and
+`Loader.vcxproj.filters`, update the `Project(` line in the solution, and update
+the build commands in `.github/workflows/build-release.yml`.
+
+## What it does not do
+
+- No login, registration, session, or saved credentials
+- No HTTP, WinHTTP, sockets, or remote API calls
+- No hardware IDs, MAC addresses, disk serials, or machine fingerprints
+- No process enumeration, injection, memory access, or game interaction
+- No shell execution, services, registry writes, or startup persistence
+- No elevation request
 
 ## Release
 
 Push a version tag:
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.1.0
+git push origin v2.1.0
 ```
 
-The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches `SachinDevLoader-v2.0.0-win64.zip` to the GitHub Release. The zip contains the executable, this README, and `SHA256SUMS.txt`.
+The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches
+`Loader-v2.1.0-win64.zip` to the GitHub Release. The zip contains the executable,
+this README, and `SHA256SUMS.txt`.
 
 ## Unsigned builds
 
-Release builds are unsigned by default. Windows Defender and SmartScreen may treat a new unsigned executable cautiously. Sign with an OV or EV code-signing certificate before public distribution:
+Release builds are unsigned by default. Windows Defender and SmartScreen may
+treat a new unsigned executable cautiously. Sign with an OV or EV code-signing
+certificate before public distribution:
 
 ```powershell
 signtool sign /fd SHA256 /f certificate.pfx /p "<password>" `
   /tr http://timestamp.digicert.com /td SHA256 `
-  SachinDevLoader.exe
+  Loader.exe
 ```
 
-A self-signed certificate is suitable only for internal test machines that trust the root certificate. It does not establish public publisher reputation.
+A self-signed certificate is suitable only for internal test machines that trust
+the root certificate. It does not establish public publisher reputation.
