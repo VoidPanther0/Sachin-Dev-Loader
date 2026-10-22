@@ -2,19 +2,21 @@
 
 A Windows desktop UI starter built with C++20, Win32, DirectX 11, and Dear ImGui.
 
-Use this repository as a template for a dark, frameless launcher interface. The
-current build is a self-contained UI preview: every control is local and visual.
+Use this repository as a template for a dark, frameless launcher interface. Click
+**Use this template** on GitHub to start a new repository from it. The current
+build is a self-contained UI preview: every control is local and visual.
 
 ## Features
 
-- Frameless 1120x700 window with DWM dark title bar and rounded corners
+- Frameless 1120x700 window with a custom title bar and rounded corners
+- Startup splash screen with a textured navy gradient and glowing progress ring
 - Dashboard, Loader, and Settings pages
 - Custom-drawn navigation, cards, buttons, toggles, and progress ring
 - Four selectable accent colors
 - Animated hover and load states
 - Segoe UI fonts loaded at runtime from the system font directory
 - Static C++ runtime, so the executable does not need the VC++ Redistributable
-- Dear ImGui 1.93.1 vendored in `src/gui` (no submodules, no package manager)
+- Dear ImGui 1.93.1 WIP vendored in `src/gui` (no submodules, no package manager)
 
 ## Requirements
 
@@ -70,6 +72,7 @@ Loader.vcxproj
 | Version label       | `app::kVersion` in `src/app.h`                     |
 | Accent colors       | `kAccents` in `src/ui.cpp`                         |
 | Sidebar branding    | `draw_sidebar()` in `src/ui.cpp`                   |
+| Splash screen       | `page_splash()` in `src/ui.cpp`                    |
 | Pages and widgets   | `page_dashboard()`, `page_loader()`, `page_settings()` |
 | Fonts and sizes     | `load_fonts()` in `src/ui.cpp`                     |
 | Executable icon     | `src/Resources/app.ico`                            |

@@ -1,7 +1,9 @@
 #include "app.h"
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -81,6 +83,9 @@ struct UiState
 	bool loading = false;
 	float load = 0.0f;
 
+	bool splash = true;
+	float splash_progress = 0.75f;
+
 	float time = 0.0f;
 	float fps = 0.0f;
 };
@@ -123,6 +128,10 @@ struct Fonts
 	ImFont* title_bold = nullptr;
 	ImFont* display = nullptr;
 	ImFont* hero = nullptr;
+	ImFont* splash_title = nullptr;
+	ImFont* splash_percent = nullptr;
+	ImFont* splash_body = nullptr;
+	ImFont* splash_button = nullptr;
 };
 
 Fonts font;
@@ -175,6 +184,10 @@ void load_fonts()
 	font.title_bold = load_font("segoeuib.ttf", 26.0f);
 	font.display = load_font("segoeuib.ttf", 34.0f);
 	font.hero = load_font("segoeuib.ttf", 46.0f);
+	font.splash_title = load_font("segoeuib.ttf", 24.0f);
+	font.splash_percent = load_font("segoeuib.ttf", 30.0f);
+	font.splash_body = load_font("segoeui.ttf", 16.0f);
+	font.splash_button = load_font("segoeuib.ttf", 17.0f);
 }
 
 // --------------------------------------------------------------- primitives ----
@@ -210,7 +223,7 @@ void box(const Rect& r, ImU32 fill, float rounding = 14.0f, ImU32 border = 0, fl
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	draw->AddRectFilled(r.min, r.max, fill, rounding);
 	if (border != 0)
-		draw->AddRect(r.min, r.max, border, rounding, 0, border_size);
+		draw->AddRect(r.min, r.max, border, rounding, border_size, 0);
 }
 
 void shadow(const Rect& r, float size = 18.0f, ImU32 color = rgba(0, 0, 0, 90))
@@ -293,7 +306,7 @@ void icon(Icon kind, ImVec2 c, float size, ImU32 color)
 	case Icon::Home:
 		draw->AddLine(ImVec2(c.x - s * 0.95f, c.y - s * 0.05f), ImVec2(c.x, c.y - s * 0.85f), color, thickness);
 		draw->AddLine(ImVec2(c.x, c.y - s * 0.85f), ImVec2(c.x + s * 0.95f, c.y - s * 0.05f), color, thickness);
-		draw->AddRect(ImVec2(c.x - s * 0.62f, c.y - s * 0.05f), ImVec2(c.x + s * 0.62f, c.y + s * 0.82f), color, 2.0f, 0, thickness);
+		draw->AddRect(ImVec2(c.x - s * 0.62f, c.y - s * 0.05f), ImVec2(c.x + s * 0.62f, c.y + s * 0.82f), color, 2.0f, thickness, 0);
 		draw->AddLine(ImVec2(c.x, c.y + s * 0.82f), ImVec2(c.x, c.y + s * 0.22f), color, thickness);
 		break;
 	case Icon::Grid:
@@ -359,7 +372,7 @@ void icon(Icon kind, ImVec2 c, float size, ImU32 color)
 		draw->AddRectFilled(ImVec2(c.x - s * 0.6f, c.y - s * 0.05f), ImVec2(c.x + s * 0.6f, c.y + s * 0.78f), color, 3.0f);
 		draw->PathClear();
 		draw->PathArcTo(ImVec2(c.x, c.y - s * 0.08f), s * 0.42f, 3.14159f, 6.28318f, 24);
-		draw->PathStroke(color, 0, 1.8f);
+		draw->PathStroke(color, 1.8f, 0);
 		break;
 	case Icon::Arrow:
 		draw->AddLine(ImVec2(c.x - s * 0.6f, c.y), ImVec2(c.x + s * 0.55f, c.y), color, thickness);
@@ -651,6 +664,180 @@ void draw_status_bar()
 	text(font.micro, 9.0f, ImVec2(1049, 674), theme.muted, app::kVersion);
 }
 
+void soft_glow(ImVec2 position, float radius, ImU32 color, float strength, int steps = 30)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	for (int i = steps; i > 0; --i)
+	{
+		const float t = static_cast<float>(i) / static_cast<float>(steps);
+		const float falloff = (1.0f - t) * (1.0f - t);
+		draw->AddCircleFilled(position, radius * t, alpha(color, strength * falloff), 96);
+	}
+}
+
+void draw_splash_background()
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float w = app::kWidth;
+	const float h = app::kHeight;
+
+	draw->AddRectFilledMultiColor(
+		ImVec2(0, 0), ImVec2(w, h),
+		rgba(12, 17, 46), rgba(9, 12, 34),
+		rgba(4, 5, 13), rgba(6, 8, 22));
+
+	soft_glow(ImVec2(w * 0.50f, h * 0.42f), 560.0f, rgba(74, 58, 182), 0.011f, 34);
+	soft_glow(ImVec2(w * 0.12f, h * 0.04f), 360.0f, rgba(44, 74, 168), 0.007f, 26);
+	soft_glow(ImVec2(w * 0.88f, h * 0.94f), 420.0f, rgba(102, 60, 214), 0.008f, 26);
+
+	draw->AddRectFilledMultiColor(
+		ImVec2(0, 0), ImVec2(w * 0.66f, h * 0.68f),
+		rgba(96, 112, 196, 16), rgba(96, 112, 196, 0),
+		rgba(96, 112, 196, 0), rgba(96, 112, 196, 0));
+
+	static const std::array<ImVec2, 460> grain = [] {
+		std::array<ImVec2, 460> points{};
+		unsigned int seed = 0x9E3779B9u;
+		for (ImVec2& point : points)
+		{
+			seed = seed * 1664525u + 1013904223u;
+			point.x = static_cast<float>((seed >> 8) & 0xFFFFu) / 65535.0f;
+			seed = seed * 1664525u + 1013904223u;
+			point.y = static_cast<float>((seed >> 8) & 0xFFFFu) / 65535.0f;
+		}
+		return points;
+	}();
+
+	for (size_t i = 0; i < grain.size(); ++i)
+	{
+		const ImVec2 point(grain[i].x * w, grain[i].y * h);
+		const float strength = 0.012f + static_cast<float>(i % 5) * 0.0035f;
+		draw->AddRectFilled(point, ImVec2(point.x + 1.2f, point.y + 1.2f),
+			alpha(rgba(190, 202, 255), strength));
+	}
+
+	draw->AddRectFilledMultiColor(
+		ImVec2(0, 0), ImVec2(w * 0.18f, h),
+		rgba(2, 3, 10, 70), rgba(2, 3, 10, 0),
+		rgba(2, 3, 10, 0), rgba(2, 3, 10, 70));
+	draw->AddRectFilledMultiColor(
+		ImVec2(w * 0.82f, 0), ImVec2(w, h),
+		rgba(2, 3, 10, 0), rgba(2, 3, 10, 70),
+		rgba(2, 3, 10, 70), rgba(2, 3, 10, 0));
+	draw->AddRectFilledMultiColor(
+		ImVec2(0, h * 0.66f), ImVec2(w, h),
+		rgba(2, 2, 8, 0), rgba(2, 2, 8, 0),
+		rgba(2, 2, 8, 140), rgba(2, 2, 8, 140));
+
+	draw->AddRect(ImVec2(0.5f, 0.5f), ImVec2(w - 0.5f, h - 0.5f),
+		rgba(58, 68, 126, 150), 18.0f, 1.0f, 0);
+	draw->AddRect(ImVec2(2.0f, 2.0f), ImVec2(w - 2.0f, h - 2.0f),
+		rgba(122, 136, 216, 18), 16.0f, 1.0f, 0);
+}
+
+void draw_progress_ring(ImVec2 center, float radius, float thickness, float progress)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const ImU32 violet = rgba(126, 79, 255);
+	const ImU32 track = rgba(37, 39, 76);
+
+	draw->AddCircle(center, radius, track, 128, thickness);
+	draw->AddCircle(center, radius + thickness * 0.62f, rgba(5, 6, 20, 90), 128, 1.5f);
+	draw->AddCircle(center, radius - thickness * 0.62f, rgba(5, 6, 20, 110), 128, 1.5f);
+
+	if (progress <= 0.001f)
+		return;
+
+	const float start = -1.570796f;
+	const float end = start + 6.283185f * clampf(progress, 0.0f, 1.0f);
+	const float pulse = state.animations ? 0.75f + 0.25f * std::sin(state.time * 1.7f) : 1.0f;
+
+	for (int i = 8; i >= 1; --i)
+	{
+		draw->PathClear();
+		draw->PathArcTo(center, radius, start, end, 96);
+		draw->PathStroke(alpha(violet, 0.013f * pulse), thickness + i * 2.2f, 0);
+	}
+
+	draw->PathClear();
+	draw->PathArcTo(center, radius, start, end, 96);
+	draw->PathStroke(violet, thickness, 0);
+
+	const ImVec2 cap_start(center.x + std::cos(start) * radius, center.y + std::sin(start) * radius);
+	const ImVec2 cap_end(center.x + std::cos(end) * radius, center.y + std::sin(end) * radius);
+	draw->AddCircleFilled(cap_start, thickness * 0.5f, rgba(151, 115, 255));
+	draw->AddCircleFilled(cap_end, thickness * 0.5f, violet);
+}
+
+bool splash_button(const char* id, const Rect& r, const char* label)
+{
+	ImGui::SetCursorScreenPos(r.min);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
+	const bool hovered = ImGui::IsItemHovered();
+	const bool active = ImGui::IsItemActive();
+	const float t = animate(id, hovered ? 1.0f : 0.0f, 12.0f);
+
+	if (t > 0.01f)
+	{
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+		for (int i = 3; i >= 1; --i)
+		{
+			draw->AddRect(
+				ImVec2(r.min.x - i * 2.0f, r.min.y - i * 2.0f),
+				ImVec2(r.max.x + i * 2.0f, r.max.y + i * 2.0f),
+				alpha(rgba(126, 79, 255), 0.028f * static_cast<float>(i) * t),
+				12.0f + i, 1.0f, 0);
+		}
+	}
+
+	const ImU32 fill = mix(rgba(15, 19, 46), rgba(27, 32, 78), t);
+	const ImU32 border = mix(rgba(47, 52, 106), rgba(126, 79, 255), t * 0.75f);
+	box(r, active ? mix(fill, rgba(0, 0, 0), 0.12f) : fill, 11.0f, border, 1.0f);
+
+	ImGui::GetWindowDrawList()->AddLine(
+		ImVec2(r.min.x + 10.0f, r.min.y + 1.0f),
+		ImVec2(r.max.x - 10.0f, r.min.y + 1.0f),
+		alpha(rgba(255, 255, 255), 0.05f + 0.05f * t));
+
+	text_center(font.splash_button, 17.0f, r,
+		mix(rgba(232, 234, 248), rgba(255, 255, 255), t), label, -1.0f);
+	return clicked;
+}
+
+void page_splash()
+{
+	draw_splash_background();
+
+	const float w = app::kWidth;
+	const ImVec2 ring_center(w * 0.5f, 294.0f);
+	const float radius = 90.0f;
+	const float thickness = 13.0f;
+	const float progress = clampf(state.splash_progress, 0.0f, 1.0f);
+
+	text_center(font.splash_title, 24.0f, rect(0, 82, w, 120),
+		rgba(245, 246, 252), "Launching App 3...");
+
+	soft_glow(ring_center, radius + 82.0f, rgba(126, 79, 255), 0.012f, 30);
+	draw_progress_ring(ring_center, radius, thickness, progress);
+
+	char percent[16];
+	std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(progress * 100.0f + 0.5f));
+	text_center(font.splash_percent, 30.0f,
+		rect(ring_center.x - 62.0f, ring_center.y - 24.0f, ring_center.x + 62.0f, ring_center.y + 24.0f),
+		rgba(247, 248, 255), percent);
+
+	text_center(font.splash_body, 16.0f, rect(0, 422, w, 456),
+		rgba(148, 152, 184), "Preparing application...");
+
+	const Rect cancel = rect(w * 0.5f - 140.0f, 566.0f, w * 0.5f + 140.0f, 628.0f);
+	if (splash_button("##splash_cancel", cancel, "Cancel") ||
+		ImGui::IsKeyPressed(ImGuiKey_Escape))
+	{
+		state.splash = false;
+		state.page = 0;
+	}
+}
+
 void page_dashboard()
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -902,7 +1089,7 @@ void page_loader()
 	{
 		draw->PathClear();
 		draw->PathArcTo(ring_center, radius, -1.570796f, -1.570796f + 6.283185f * progress, 64);
-		draw->PathStroke(accent(), 0, 7.0f);
+		draw->PathStroke(accent(), 7.0f, 0);
 	}
 
 	char percent[16];
@@ -1120,18 +1307,25 @@ void app::Render()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 	ImGui::Begin("##root", nullptr, flags);
 
-	draw_background();
-	draw_sidebar();
-	draw_top_bar();
-
-	switch (state.page)
+	if (state.splash)
 	{
-	case 0: page_dashboard(); break;
-	case 1: page_loader(); break;
-	default: page_settings(); break;
+		page_splash();
 	}
+	else
+	{
+		draw_background();
+		draw_sidebar();
+		draw_top_bar();
 
-	draw_status_bar();
+		switch (state.page)
+		{
+		case 0: page_dashboard(); break;
+		case 1: page_loader(); break;
+		default: page_settings(); break;
+		}
+
+		draw_status_bar();
+	}
 
 	ImGui::End();
 	ImGui::PopStyleVar(2);
