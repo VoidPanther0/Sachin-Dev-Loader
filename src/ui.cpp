@@ -5,8 +5,11 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -42,74 +45,72 @@ ImU32 mix(ImU32 from, ImU32 to, float t)
 		a.w + (b.w - a.w) * t));
 }
 
-struct Theme
-{
-	ImU32 bg = rgba(7, 7, 10);
-	ImU32 panel = rgba(17, 17, 22);
-	ImU32 panel2 = rgba(23, 23, 30);
-	ImU32 panel3 = rgba(32, 32, 42);
-	ImU32 line = rgba(255, 255, 255, 16);
-	ImU32 line_bright = rgba(255, 255, 255, 30);
-	ImU32 text = rgba(244, 244, 247);
-	ImU32 muted = rgba(125, 125, 140);
-	ImU32 dim = rgba(82, 82, 98);
-	ImU32 green = rgba(53, 208, 127);
-	ImU32 red = rgba(255, 77, 94);
-};
-
-const ImU32 kAccents[4] = {
-	rgba(255, 92, 26),
-	rgba(52, 214, 255),
-	rgba(167, 123, 255),
-	rgba(182, 255, 69),
-};
-
-Theme theme;
+const ImU32 kBgTop = rgba(6, 11, 26);
+const ImU32 kBgBottom = rgba(4, 7, 18);
+const ImU32 kPanel_soft = rgba(11, 19, 39, 190);
+const ImU32 kLine = rgba(255, 255, 255, 18);
+const ImU32 kLine_strong = rgba(120, 148, 220, 46);
+const ImU32 kText = rgba(238, 242, 255);
+const ImU32 kMuted = rgba(138, 150, 180);
+const ImU32 kDim = rgba(88, 101, 133);
+const ImU32 kViolet = rgba(124, 77, 255);
+const ImU32 kBlue = rgba(59, 130, 246);
+const ImU32 kGreen = rgba(66, 230, 164);
+const ImU32 kRed = rgba(255, 90, 118);
+const ImU32 kField = rgba(8, 14, 30, 220);
 
 // ------------------------------------------------------------------ state ----
 
+enum class Screen
+{
+	Splash,
+	Login,
+	Loader
+};
+
 struct UiState
 {
-	int page = 0;
-	int game = 0;
-	int profile = 0;
-	int accent = 0;
-
-	bool features[5] = { true, true, false, true, true };
-	bool animations = true;
-	bool glow = true;
-	bool show_fps = true;
-
-	bool loading = false;
-	float load = 0.0f;
-
-	bool splash = true;
-	float splash_progress = 0.75f;
+	Screen screen = Screen::Splash;
 
 	float time = 0.0f;
+	float screen_time = 0.0f;
 	float fps = 0.0f;
+
+	char username[128] = {};
+	char password[128] = {};
+	bool remember = false;
+	bool reveal_password = false;
+
+	bool authenticating = false;
+	float auth_time = 0.0f;
+
+	bool error = false;
+	bool info = false;
+	float banner_age = 10.0f;
+
+	bool launching = false;
+	bool ready = false;
+	float launch = 0.0f;
+
+	std::string session;
 };
 
 UiState state;
 
 std::unordered_map<ImGuiID, float> g_anim;
 
-ImU32 accent()
+void go(Screen screen)
 {
-	return kAccents[state.accent & 3];
+	state.screen = screen;
+	state.screen_time = 0.0f;
 }
 
 float animate(const char* id, float target, float speed = 14.0f)
 {
 	const ImGuiID key = ImGui::GetID(id);
 	float& value = g_anim[key];
-	if (!state.animations)
-	{
-		value = target;
-		return value;
-	}
-	const float delta = ImGui::GetIO().DeltaTime * speed;
-	value += (target - value) * clampf(delta, 0.0f, 1.0f);
+	const float delta = clampf(ImGui::GetIO().DeltaTime * speed, 0.0f, 1.0f);
+	value += (target - value) * delta;
 	return value;
 }
 
@@ -121,17 +122,13 @@ struct Fonts
 	ImFont* tiny = nullptr;
 	ImFont* small_font = nullptr;
 	ImFont* body = nullptr;
-	ImFont* bold = nullptr;
-	ImFont* medium = nullptr;
-	ImFont* medium_bold = nullptr;
-	ImFont* title = nullptr;
-	ImFont* title_bold = nullptr;
-	ImFont* display = nullptr;
 	ImFont* hero = nullptr;
-	ImFont* splash_title = nullptr;
-	ImFont* splash_percent = nullptr;
-	ImFont* splash_body = nullptr;
-	ImFont* splash_button = nullptr;
+	ImFont* brand = nullptr;
+	ImFont* brand_small = nullptr;
+	ImFont* subtitle = nullptr;
+	ImFont* input = nullptr;
+	ImFont* button = nullptr;
+	ImFont* link = nullptr;
 };
 
 Fonts font;
@@ -147,8 +144,7 @@ std::string font_path(const char* file)
 	path += "\\Fonts\\";
 	path += file;
 
-	const DWORD attributes = GetFileAttributesA(path.c_str());
-	if (attributes == INVALID_FILE_ATTRIBUTES)
+	if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
 		return std::string();
 
 	return path;
@@ -177,17 +173,13 @@ void load_fonts()
 	font.tiny = load_font("segoeui.ttf", 11.0f);
 	font.small_font = load_font("segoeui.ttf", 13.0f);
 	font.body = load_font("segoeui.ttf", 15.0f);
-	font.bold = load_font("segoeuib.ttf", 15.0f);
-	font.medium = load_font("segoeui.ttf", 18.0f);
-	font.medium_bold = load_font("segoeuib.ttf", 18.0f);
-	font.title = load_font("segoeuib.ttf", 26.0f);
-	font.title_bold = load_font("segoeuib.ttf", 26.0f);
-	font.display = load_font("segoeuib.ttf", 34.0f);
-	font.hero = load_font("segoeuib.ttf", 46.0f);
-	font.splash_title = load_font("segoeuib.ttf", 24.0f);
-	font.splash_percent = load_font("segoeuib.ttf", 30.0f);
-	font.splash_body = load_font("segoeui.ttf", 16.0f);
-	font.splash_button = load_font("segoeuib.ttf", 17.0f);
+	font.hero = load_font("segoeuib.ttf", 44.0f);
+	font.brand = load_font("segoeuib.ttf", 42.0f);
+	font.brand_small = load_font("segoeuib.ttf", 22.0f);
+	font.subtitle = load_font("segoeui.ttf", 19.0f);
+	font.input = load_font("segoeui.ttf", 17.0f);
+	font.button = load_font("segoeuib.ttf", 17.0f);
+	font.link = load_font("segoeui.ttf", 14.0f);
 }
 
 // --------------------------------------------------------------- primitives ----
@@ -226,25 +218,6 @@ void box(const Rect& r, ImU32 fill, float rounding = 14.0f, ImU32 border = 0, fl
 		draw->AddRect(r.min, r.max, border, rounding, border_size, 0);
 }
 
-void shadow(const Rect& r, float size = 18.0f, ImU32 color = rgba(0, 0, 0, 90))
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const ImVec2 offset(0.0f, 6.0f);
-	const int layers = 4;
-
-	for (int i = layers; i >= 1; --i)
-	{
-		const float t = static_cast<float>(i) / static_cast<float>(layers);
-		const float spread = size * 0.5f * t;
-
-		draw->AddRectFilled(
-			ImVec2(r.min.x - spread, r.min.y - spread + offset.y),
-			ImVec2(r.max.x + spread, r.max.y + spread + offset.y),
-			alpha(color, 0.25f * (1.0f - t)),
-			16.0f + spread);
-	}
-}
-
 void text(ImFont* f, float size, ImVec2 position, ImU32 color, const char* value)
 {
 	ImGui::GetWindowDrawList()->AddText(f, size, position, color, value);
@@ -263,419 +236,376 @@ void text_center(ImFont* f, float size, const Rect& r, ImU32 color, const char* 
 	text(f, size, ImVec2(x, y), color, value);
 }
 
-void glow(ImVec2 position, float radius, ImU32 color, int steps = 24)
+void text_center_x(ImFont* f, float size, float center_x, float y, ImU32 color, const char* value)
+{
+	text(f, size, ImVec2(center_x - text_width(f, size, value) * 0.5f, y), color, value);
+}
+
+void soft_glow(ImVec2 position, float radius, ImU32 color, float strength, int steps = 22)
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	for (int i = steps; i > 0; --i)
 	{
 		const float t = static_cast<float>(i) / static_cast<float>(steps);
 		const float falloff = (1.0f - t) * (1.0f - t);
-		draw->AddCircleFilled(position, radius * t, alpha(color, falloff * 0.16f), 64);
+		draw->AddCircleFilled(position, radius * t, alpha(color, strength * falloff), 32);
 	}
 }
 
-enum class Icon
+void gradient_round_rect(const Rect& r, float rounding, ImU32 left, ImU32 right)
 {
-	None,
-	Home,
-	Grid,
-	Sliders,
-	Settings,
-	Play,
-	Close,
-	Minus,
-	Check,
-	Chevron,
-	Bolt,
-	User,
-	Gamepad,
-	Lock,
-	Arrow
-};
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddRectFilled(r.min, r.max, mix(left, right, 0.5f), rounding);
 
-void icon(Icon kind, ImVec2 c, float size, ImU32 color)
+	const float h = height(r);
+	const int steps = std::max(1, static_cast<int>(h));
+	const float step = h / static_cast<float>(steps);
+
+	for (int i = 0; i < steps; ++i)
+	{
+		const float y = static_cast<float>(i) * step;
+		const float mid = y + step * 0.5f;
+		float inset = 0.0f;
+
+		if (mid < rounding)
+			inset = rounding - std::sqrt(std::max(0.0f, rounding * rounding - (rounding - mid) * (rounding - mid)));
+		else if (mid > h - rounding)
+		{
+			const float d = mid - (h - rounding);
+			inset = rounding - std::sqrt(std::max(0.0f, rounding * rounding - d * d));
+		}
+
+		if (inset > 0.0f)
+			inset = std::floor(inset) + 0.5f;
+
+		draw->AddRectFilledMultiColor(
+			ImVec2(r.min.x + inset, r.min.y + y),
+			ImVec2(r.max.x - inset, r.min.y + y + step + 0.4f),
+			left, right, right, left);
+	}
+}
+
+std::string elide(ImFont* f, float size, const std::string& value, float max_width)
+{
+	if (text_width(f, size, value.c_str()) <= max_width)
+		return value;
+
+	std::string result = value;
+	while (!result.empty())
+	{
+		result.pop_back();
+		const std::string candidate = result + "...";
+		if (text_width(f, size, candidate.c_str()) <= max_width)
+			return candidate;
+	}
+
+	return "...";
+}
+
+// ------------------------------------------------------------------ icons ----
+
+void icon_user(ImVec2 c, float size, ImU32 color)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddCircle(ImVec2(c.x, c.y - size * 0.20f), size * 0.20f, color, 24, 1.5f);
+	draw->PathClear();
+	draw->PathArcTo(ImVec2(c.x, c.y + size * 0.36f), size * 0.34f, 3.14159f, 6.28318f, 24);
+	draw->PathStroke(color, 1.5f, 0);
+}
+
+void icon_lock(ImVec2 c, float size, ImU32 color)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddRect(
+		ImVec2(c.x - size * 0.31f, c.y - size * 0.02f),
+		ImVec2(c.x + size * 0.31f, c.y + size * 0.38f),
+		color, 3.0f, 1.5f);
+	draw->PathClear();
+	draw->PathArcTo(ImVec2(c.x, c.y - size * 0.02f), size * 0.20f, 3.14159f, 6.28318f, 20);
+	draw->PathStroke(color, 1.5f, 0);
+}
+
+void icon_eye(ImVec2 c, float size, ImU32 color, bool open)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float w = size * 0.52f;
+	const float h = size * 0.30f;
+
+	draw->PathClear();
+	draw->PathLineTo(ImVec2(c.x - w, c.y));
+	draw->PathBezierCubicCurveTo(ImVec2(c.x - w * 0.45f, c.y - h), ImVec2(c.x + w * 0.45f, c.y - h), ImVec2(c.x + w, c.y), 18);
+	draw->PathBezierCubicCurveTo(ImVec2(c.x + w * 0.45f, c.y + h), ImVec2(c.x - w * 0.45f, c.y + h), ImVec2(c.x - w, c.y), 18);
+	draw->PathStroke(color, 1.5f, 0);
+
+	draw->AddCircle(ImVec2(c.x, c.y), size * 0.13f, color, 20, 1.5f);
+
+	if (!open)
+		draw->AddLine(ImVec2(c.x - w * 0.9f, c.y + h * 1.15f), ImVec2(c.x + w * 0.9f, c.y - h * 1.15f), color, 1.5f);
+}
+
+void icon_arrow(ImVec2 c, float size, ImU32 color)
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	const float s = size * 0.5f;
-	const float thickness = 1.6f;
-
-	switch (kind)
-	{
-	case Icon::None:
-		break;
-	case Icon::Home:
-		draw->AddLine(ImVec2(c.x - s * 0.95f, c.y - s * 0.05f), ImVec2(c.x, c.y - s * 0.85f), color, thickness);
-		draw->AddLine(ImVec2(c.x, c.y - s * 0.85f), ImVec2(c.x + s * 0.95f, c.y - s * 0.05f), color, thickness);
-		draw->AddRect(ImVec2(c.x - s * 0.62f, c.y - s * 0.05f), ImVec2(c.x + s * 0.62f, c.y + s * 0.82f), color, 2.0f, thickness, 0);
-		draw->AddLine(ImVec2(c.x, c.y + s * 0.82f), ImVec2(c.x, c.y + s * 0.22f), color, thickness);
-		break;
-	case Icon::Grid:
-		draw->AddRectFilled(ImVec2(c.x - s * 0.8f, c.y - s * 0.8f), ImVec2(c.x - s * 0.08f, c.y - s * 0.08f), color, 2.0f);
-		draw->AddRectFilled(ImVec2(c.x + s * 0.08f, c.y - s * 0.8f), ImVec2(c.x + s * 0.8f, c.y - s * 0.08f), color, 2.0f);
-		draw->AddRectFilled(ImVec2(c.x - s * 0.8f, c.y + s * 0.08f), ImVec2(c.x - s * 0.08f, c.y + s * 0.8f), color, 2.0f);
-		draw->AddRectFilled(ImVec2(c.x + s * 0.08f, c.y + s * 0.08f), ImVec2(c.x + s * 0.8f, c.y + s * 0.8f), color, 2.0f);
-		break;
-	case Icon::Sliders:
-	case Icon::Settings:
-		draw->AddLine(ImVec2(c.x - s * 0.9f, c.y - s * 0.55f), ImVec2(c.x + s * 0.9f, c.y - s * 0.55f), color, thickness);
-		draw->AddLine(ImVec2(c.x - s * 0.9f, c.y), ImVec2(c.x + s * 0.9f, c.y), color, thickness);
-		draw->AddLine(ImVec2(c.x - s * 0.9f, c.y + s * 0.55f), ImVec2(c.x + s * 0.9f, c.y + s * 0.55f), color, thickness);
-		draw->AddCircleFilled(ImVec2(c.x - s * 0.25f, c.y - s * 0.55f), s * 0.22f, color);
-		draw->AddCircleFilled(ImVec2(c.x + s * 0.38f, c.y), s * 0.22f, color);
-		draw->AddCircleFilled(ImVec2(c.x - s * 0.05f, c.y + s * 0.55f), s * 0.22f, color);
-		break;
-	case Icon::Play:
-		draw->AddTriangleFilled(
-			ImVec2(c.x - s * 0.35f, c.y - s * 0.62f),
-			ImVec2(c.x - s * 0.35f, c.y + s * 0.62f),
-			ImVec2(c.x + s * 0.68f, c.y), color);
-		break;
-	case Icon::Close:
-		draw->AddLine(ImVec2(c.x - s * 0.48f, c.y - s * 0.48f), ImVec2(c.x + s * 0.48f, c.y + s * 0.48f), color, thickness);
-		draw->AddLine(ImVec2(c.x + s * 0.48f, c.y - s * 0.48f), ImVec2(c.x - s * 0.48f, c.y + s * 0.48f), color, thickness);
-		break;
-	case Icon::Minus:
-		draw->AddLine(ImVec2(c.x - s * 0.5f, c.y), ImVec2(c.x + s * 0.5f, c.y), color, thickness);
-		break;
-	case Icon::Check:
-		draw->AddLine(ImVec2(c.x - s * 0.55f, c.y), ImVec2(c.x - s * 0.1f, c.y + s * 0.45f), color, thickness);
-		draw->AddLine(ImVec2(c.x - s * 0.1f, c.y + s * 0.45f), ImVec2(c.x + s * 0.6f, c.y - s * 0.45f), color, thickness);
-		break;
-	case Icon::Chevron:
-		draw->AddLine(ImVec2(c.x - s * 0.25f, c.y - s * 0.45f), ImVec2(c.x + s * 0.25f, c.y), color, thickness);
-		draw->AddLine(ImVec2(c.x + s * 0.25f, c.y), ImVec2(c.x - s * 0.25f, c.y + s * 0.45f), color, thickness);
-		break;
-	case Icon::Bolt:
-	{
-		draw->AddTriangleFilled(
-			ImVec2(c.x + s * 0.08f, c.y - s * 0.9f),
-			ImVec2(c.x - s * 0.55f, c.y + s * 0.08f),
-			ImVec2(c.x - s * 0.06f, c.y + s * 0.08f), color);
-		draw->AddTriangleFilled(
-			ImVec2(c.x - s * 0.18f, c.y + s * 0.9f),
-			ImVec2(c.x + s * 0.6f, c.y - s * 0.16f),
-			ImVec2(c.x + s * 0.08f, c.y - s * 0.16f), color);
-		break;
-	}
-	case Icon::User:
-		draw->AddCircleFilled(ImVec2(c.x, c.y - s * 0.35f), s * 0.38f, color);
-		draw->AddCircleFilled(ImVec2(c.x, c.y + s * 0.78f), s * 0.72f, alpha(color, 0.55f), 32);
-		break;
-	case Icon::Gamepad:
-		draw->AddRectFilled(ImVec2(c.x - s * 0.95f, c.y - s * 0.38f), ImVec2(c.x + s * 0.95f, c.y + s * 0.45f), color, s * 0.45f);
-		draw->AddCircleFilled(ImVec2(c.x - s * 0.82f, c.y + s * 0.55f), s * 0.38f, color);
-		draw->AddCircleFilled(ImVec2(c.x + s * 0.82f, c.y + s * 0.55f), s * 0.38f, color);
-		draw->AddCircleFilled(ImVec2(c.x - s * 0.5f, c.y + s * 0.02f), s * 0.12f, rgba(0, 0, 0, 180));
-		draw->AddCircleFilled(ImVec2(c.x + s * 0.5f, c.y + s * 0.02f), s * 0.12f, rgba(0, 0, 0, 180));
-		break;
-	case Icon::Lock:
-		draw->AddRectFilled(ImVec2(c.x - s * 0.6f, c.y - s * 0.05f), ImVec2(c.x + s * 0.6f, c.y + s * 0.78f), color, 3.0f);
-		draw->PathClear();
-		draw->PathArcTo(ImVec2(c.x, c.y - s * 0.08f), s * 0.42f, 3.14159f, 6.28318f, 24);
-		draw->PathStroke(color, 1.8f, 0);
-		break;
-	case Icon::Arrow:
-		draw->AddLine(ImVec2(c.x - s * 0.6f, c.y), ImVec2(c.x + s * 0.55f, c.y), color, thickness);
-		draw->AddLine(ImVec2(c.x + s * 0.1f, c.y - s * 0.45f), ImVec2(c.x + s * 0.55f, c.y), color, thickness);
-		draw->AddLine(ImVec2(c.x + s * 0.1f, c.y + s * 0.45f), ImVec2(c.x + s * 0.55f, c.y), color, thickness);
-		break;
-	}
+	draw->AddLine(ImVec2(c.x - s, c.y), ImVec2(c.x + s, c.y), color, 1.7f);
+	draw->AddLine(ImVec2(c.x + s * 0.2f, c.y - s * 0.55f), ImVec2(c.x + s, c.y), color, 1.7f);
+	draw->AddLine(ImVec2(c.x + s * 0.2f, c.y + s * 0.55f), ImVec2(c.x + s, c.y), color, 1.7f);
 }
 
-// --------------------------------------------------------------- components ----
-
-bool button(const char* id, const Rect& r, const char* label, bool primary, Icon glyph = Icon::None)
-{
-	ImGui::SetCursorScreenPos(r.min);
-	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
-	const bool hovered = ImGui::IsItemHovered();
-	const bool active = ImGui::IsItemActive();
-
-	const float t = animate(id, hovered ? 1.0f : 0.0f, 14.0f);
-	const float press = active ? 0.06f : 0.0f;
-
-	ImU32 fill = primary
-		? mix(accent(), mix(accent(), rgba(255, 255, 255), 0.18f), t)
-		: mix(theme.panel2, theme.panel3, t);
-	fill = mix(fill, rgba(0, 0, 0), press);
-
-	const ImU32 border = primary ? alpha(accent(), 0.55f) : (t > 0.01f ? theme.line_bright : theme.line);
-	box(r, fill, 10.0f, border, 1.0f);
-
-	const ImU32 label_color = primary ? rgba(255, 255, 255) : mix(theme.muted, theme.text, t);
-	const float label_size = 13.0f;
-	const float label_width = text_width(font.small_font, label_size, label);
-	const float icon_size = glyph == Icon::None ? 0.0f : 14.0f;
-	const float gap = glyph == Icon::None ? 0.0f : 7.0f;
-	const float total = label_width + icon_size + gap;
-	const float start_x = r.min.x + (width(r) - total) * 0.5f;
-	const float center_y = r.min.y + height(r) * 0.5f;
-
-	if (glyph != Icon::None)
-		icon(glyph, ImVec2(start_x + icon_size * 0.5f, center_y), icon_size, label_color);
-
-	text(font.small_font, label_size, ImVec2(start_x + icon_size + gap, center_y - label_size * 0.5f - 1.0f), label_color, label);
-	return clicked;
-}
-
-bool icon_button(const char* id, const Rect& r, Icon glyph)
-{
-	ImGui::SetCursorScreenPos(r.min);
-	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
-	const bool hovered = ImGui::IsItemHovered();
-	const float t = animate(id, hovered ? 1.0f : 0.0f, 16.0f);
-
-	if (t > 0.01f)
-		box(r, alpha(rgba(255, 255, 255), 0.06f * t), 8.0f, 0, 0.0f);
-
-	icon(glyph, center(r), 14.0f, mix(theme.muted, theme.text, t));
-	return clicked;
-}
-
-void pill(const Rect& r, const char* label, ImU32 color)
-{
-	box(r, alpha(color, 0.08f), height(r) * 0.5f, alpha(color, 0.18f), 1.0f);
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const ImVec2 dot(r.min.x + 14.0f, r.min.y + height(r) * 0.5f);
-	draw->AddCircleFilled(dot, 3.0f, color);
-
-	const float size = 10.0f;
-	const float y = r.min.y + (height(r) - size) * 0.5f - 1.0f;
-	text(font.micro, size, ImVec2(r.min.x + 24.0f, y), mix(color, theme.text, 0.35f), label);
-}
-
-void chip(const Rect& r, const char* label)
-{
-	box(r, theme.panel2, height(r) * 0.5f, theme.line, 1.0f);
-	text_center(font.micro, 9.0f, r, theme.muted, label);
-}
-
-void switch_visual(const Rect& r, float t)
+void icon_close(ImVec2 c, float size, ImU32 color)
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const ImU32 track = mix(theme.panel3, accent(), t);
-	box(r, track, height(r) * 0.5f, 0, 0.0f);
-
-	const float radius = height(r) * 0.34f;
-	const float x = r.min.x + radius + 3.0f + (width(r) - radius * 2.0f - 6.0f) * t;
-	draw->AddCircleFilled(ImVec2(x, r.min.y + height(r) * 0.5f), radius, rgba(255, 255, 255));
+	const float s = size * 0.34f;
+	draw->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), color, 1.5f);
+	draw->AddLine(ImVec2(c.x + s, c.y - s), ImVec2(c.x - s, c.y + s), color, 1.5f);
 }
 
-bool nav_item(int index, const char* label, Icon glyph, const Rect& r)
+void icon_minimize(ImVec2 c, float size, ImU32 color)
 {
-	static const char* ids[3] = { "##nav_dashboard", "##nav_loader", "##nav_settings" };
-
-	ImGui::SetCursorScreenPos(r.min);
-	const bool clicked = ImGui::InvisibleButton(ids[index], ImVec2(width(r), height(r)));
-	const bool hovered = ImGui::IsItemHovered();
-	const bool selected = state.page == index;
-	const float t = animate(ids[index], hovered ? 1.0f : 0.0f, 14.0f);
-
-	if (selected)
-	{
-		box(r, alpha(accent(), 0.10f), 10.0f, alpha(accent(), 0.18f), 1.0f);
-		ImGui::GetWindowDrawList()->AddRectFilled(
-			ImVec2(r.min.x, r.min.y + 10.0f),
-			ImVec2(r.min.x + 3.0f, r.max.y - 10.0f),
-			accent(), 2.0f);
-	}
-	else if (t > 0.01f)
-	{
-		box(r, alpha(rgba(255, 255, 255), 0.035f * t), 10.0f, 0, 0.0f);
-	}
-
-	const ImU32 glyph_color = selected ? accent() : mix(theme.dim, theme.muted, t);
-	const ImU32 label_color = selected ? theme.text : mix(theme.dim, theme.text, t);
-
-	icon(glyph, ImVec2(r.min.x + 24.0f, r.min.y + height(r) * 0.5f), 16.0f, glyph_color);
-	text(font.small_font, 13.0f, ImVec2(r.min.x + 44.0f, r.min.y + height(r) * 0.5f - 7.0f), label_color, label);
-
-	if (selected)
-		ImGui::GetWindowDrawList()->AddCircleFilled(
-			ImVec2(r.max.x - 18.0f, r.min.y + height(r) * 0.5f), 2.5f, accent());
-
-	return clicked;
+	ImGui::GetWindowDrawList()->AddLine(
+		ImVec2(c.x - size * 0.34f, c.y),
+		ImVec2(c.x + size * 0.34f, c.y), color, 1.5f);
 }
 
-// ------------------------------------------------------------------- data ----
-
-struct Game
-{
-	const char* name;
-	const char* mark;
-	const char* tag;
-	ImU32 color;
-};
-
-const Game kGames[6] = {
-	{ "VALORANT", "VA", "TACTICAL FPS", rgba(255, 70, 85) },
-	{ "RUST", "RU", "SURVIVAL", rgba(217, 130, 43) },
-	{ "FORTNITE", "FN", "BATTLE ROYALE", rgba(139, 124, 255) },
-	{ "TARKOV", "EFT", "EXTRACTION", rgba(163, 170, 184) },
-	{ "WARZONE", "MW", "BATTLE ROYALE", rgba(143, 209, 79) },
-	{ "MORE TITLES", "+", "COMING SOON", rgba(70, 70, 84) },
-};
-
-const char* kFeatureNames[5] = {
-	"Aimbot",
-	"ESP / Visuals",
-	"Radar",
-	"No Recoil",
-	"Stream Proof",
-};
-
-const char* kFeatureDesc[5] = {
-	"Smooth target assistance",
-	"Player and item overlay",
-	"Extended minimap awareness",
-	"Recoil compensation",
-	"Hide overlay from capture",
-};
-
-// ------------------------------------------------------------------ panels ----
-
-void draw_background()
+void spinner(ImVec2 c, float radius, float thickness, ImU32 color)
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddRectFilled(ImVec2(0, 0), ImVec2(app::kWidth, app::kHeight), theme.bg);
+	draw->AddCircle(c, radius, rgba(44, 55, 96, 180), 48, thickness);
+	const float start = state.time * 5.2f;
+	draw->PathClear();
+	draw->PathArcTo(c, radius, start, start + 4.35f, 40);
+	draw->PathStroke(color, thickness, 0);
 
-	if (state.glow)
-	{
-		glow(ImVec2(1030.0f, 10.0f), 520.0f, accent(), 22);
-		glow(ImVec2(150.0f, 760.0f), 480.0f, rgba(95, 78, 255), 22);
-	}
-
-	for (float x = 232.0f; x < app::kWidth; x += 54.0f)
-		draw->AddLine(ImVec2(x, 76.0f), ImVec2(x, app::kHeight), rgba(255, 255, 255, 5));
-
-	for (float y = 76.0f; y < app::kHeight; y += 54.0f)
-		draw->AddLine(ImVec2(232.0f, y), ImVec2(app::kWidth, y), rgba(255, 255, 255, 5));
+	const float head = start + 4.35f;
+	const ImVec2 point(c.x + std::cos(head) * radius, c.y + std::sin(head) * radius);
+	draw->AddCircleFilled(point, thickness * 0.60f, mix(color, rgba(255, 255, 255), 0.55f));
 }
 
-void draw_sidebar()
+// ---------------------------------------------------------------- branding ----
+
+void draw_logo(ImVec2 c, float size, float opacity = 1.0f)
 {
-	ImDrawList* draw = ImGui::GetWindowDrawList();
+	soft_glow(c, size * 1.05f, rgba(111, 76, 255), 0.024f * opacity, 24);
 
-	draw->AddRectFilled(ImVec2(0, 0), ImVec2(232, app::kHeight), rgba(10, 10, 14));
-	draw->AddLine(ImVec2(231, 0), ImVec2(231, app::kHeight), theme.line);
+	const ImVec2 p0(0.34f, -0.40f);
+	const ImVec2 p1(-0.32f, -0.04f);
+	const ImVec2 p2(0.32f, 0.04f);
+	const ImVec2 p3(-0.30f, 0.42f);
 
-	draw->AddRectFilledMultiColor(
-		ImVec2(0, 0), ImVec2(232, 130),
-		alpha(accent(), 0.10f), alpha(accent(), 0.0f),
-		alpha(accent(), 0.0f), alpha(accent(), 0.0f));
+	std::array<ImVec2, 96> points{};
+	int count = 0;
 
-	const Rect logo = rect(24, 26, 66, 68);
-	box(logo, accent(), 12.0f, alpha(rgba(255, 255, 255), 0.18f), 1.0f);
-	draw->AddRectFilled(
-		ImVec2(logo.min.x + 2, logo.min.y + 2),
-		ImVec2(logo.max.x - 2, logo.min.y + 22),
-		alpha(rgba(255, 255, 255), 0.10f), 10.0f);
-
-	text_center(font.medium_bold, 22.0f, logo, rgba(8, 8, 10), "S");
-
-	text(font.medium_bold, 17.0f, ImVec2(78, 26), theme.text, "SACHIN");
-	text(font.micro, 9.0f, ImVec2(79, 51), theme.muted, "DEV LOADER");
-
-	text(font.micro, 9.0f, ImVec2(28, 108), theme.dim, "MENU");
-	draw->AddLine(ImVec2(68, 113), ImVec2(208, 113), theme.line);
-
-	const char* nav_labels[3] = { "Dashboard", "Loader", "Settings" };
-	const Icon nav_icons[3] = { Icon::Home, Icon::Gamepad, Icon::Sliders };
-
-	for (int i = 0; i < 3; ++i)
-	{
-		const Rect item = rect(20, 126 + i * 52, 212, 168 + i * 52);
-		if (nav_item(i, nav_labels[i], nav_icons[i], item))
+	auto sample = [&](ImVec2 start, ImVec2 control, ImVec2 end) {
+		for (int i = 0; i <= 31 && count < static_cast<int>(points.size()); ++i)
 		{
-			state.page = i;
-			if (i == 1)
+			const float t = static_cast<float>(i) / 31.0f;
+			const float u = 1.0f - t;
+			const ImVec2 p(
+				u * u * start.x + 2.0f * u * t * control.x + t * t * end.x,
+				u * u * start.y + 2.0f * u * t * control.y + t * t * end.y);
+			points[count++] = ImVec2(c.x + p.x * size, c.y + p.y * size);
+		}
+	};
+
+	sample(p0, ImVec2(-0.34f, -0.50f), p1);
+	sample(p1, ImVec2(0.02f, 0.06f), p2);
+	sample(p2, ImVec2(0.38f, 0.50f), p3);
+
+	if (count == 0)
+		return;
+
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float radius = size * 0.082f;
+
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		const bool shade = pass == 0;
+		for (int i = 0; i < count; ++i)
+		{
+			const ImVec2 point = shade
+				? ImVec2(points[i].x + size * 0.014f, points[i].y + size * 0.035f)
+				: points[i];
+
+			ImU32 color = 0;
+			if (shade)
 			{
-				state.loading = false;
-				state.load = 0.0f;
+				color = rgba(16, 8, 42, static_cast<int>(120.0f * opacity));
 			}
+			else
+			{
+				const float t = static_cast<float>(i) / static_cast<float>(count - 1);
+				color = t < 0.5f
+					? mix(rgba(63, 132, 255), rgba(124, 92, 255), t * 2.0f)
+					: mix(rgba(124, 92, 255), rgba(176, 85, 255), (t - 0.5f) * 2.0f);
+				color = alpha(color, opacity);
+			}
+
+			draw->AddCircleFilled(point, radius, color, 20);
 		}
 	}
 
-	const Rect status = rect(20, 516, 212, 646);
-	box(status, theme.panel, 12.0f, theme.line, 1.0f);
-
-	draw->AddCircleFilled(ImVec2(38, 538), 3.5f, theme.green);
-	text(font.small_font, 12.0f, ImVec2(48, 530), theme.text, "UI READY");
-	text(font.micro, 9.0f, ImVec2(36, 552), theme.muted, "Local preview build");
-
-	draw->AddLine(ImVec2(36, 576), ImVec2(196, 576), theme.line);
-
-	text(font.micro, 8.0f, ImVec2(36, 590), theme.dim, "VERSION");
-	text(font.medium, 16.0f, ImVec2(36, 604), theme.text, app::kVersion);
-	text(font.micro, 8.0f, ImVec2(138, 610), theme.dim, "STABLE");
-
-	text(font.micro, 8.0f, ImVec2(24, 670), theme.dim, "2026 SACHIN DEV");
-}
-
-void draw_top_bar()
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	static const char* names[3] = { "DASHBOARD", "LOADER", "SETTINGS" };
-
-	const char* current = names[state.page];
-	text(font.micro, 9.0f, ImVec2(260, 27), theme.muted, "SACHIN DEV");
-	const float first = text_width(font.micro, 9.0f, "SACHIN DEV");
-	text(font.micro, 9.0f, ImVec2(260 + first + 10, 27), theme.dim, "/");
-	text(font.micro, 9.0f, ImVec2(260 + first + 22, 27), theme.text, current);
-
-	const Rect online = rect(876, 21, 984, 53);
-	pill(online, "SYSTEM READY", theme.green);
-
-	if (icon_button("##minimize", rect(1012, 20, 1048, 56), Icon::Minus))
-		ShowWindow(g_hwnd, SW_MINIMIZE);
-
-	if (icon_button("##close", rect(1052, 20, 1088, 56), Icon::Close))
-		PostQuitMessage(0);
-
-	draw->AddLine(ImVec2(232, 76), ImVec2(app::kWidth, 76), theme.line);
-
-	ImGui::SetCursorScreenPos(ImVec2(232, 0));
-	ImGui::InvisibleButton("##drag_content", ImVec2(620, 76));
-	if (ImGui::IsItemClicked())
-		StartWindowDrag();
-
-	ImGui::SetCursorScreenPos(ImVec2(0, 0));
-	ImGui::InvisibleButton("##drag_sidebar", ImVec2(232, 76));
-	if (ImGui::IsItemClicked())
-		StartWindowDrag();
-}
-
-void draw_status_bar()
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddLine(ImVec2(232, 660), ImVec2(app::kWidth, 660), theme.line);
-
-	draw->AddCircleFilled(ImVec2(260, 680), 3.0f, theme.green);
-	text(font.micro, 9.0f, ImVec2(270, 674), theme.text, "READY");
-	text(font.micro, 9.0f, ImVec2(310, 674), theme.dim, "UI PREVIEW");
-
-	char fps[32];
-	std::snprintf(fps, sizeof(fps), "FPS %d", static_cast<int>(state.fps + 0.5f));
-
-	if (state.show_fps)
-		text(font.micro, 9.0f, ImVec2(986, 674), theme.dim, fps);
-
-	text(font.micro, 9.0f, ImVec2(1042, 674), theme.dim, "v");
-	text(font.micro, 9.0f, ImVec2(1049, 674), theme.muted, app::kVersion);
-}
-
-void soft_glow(ImVec2 position, float radius, ImU32 color, float strength, int steps = 30)
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	for (int i = steps; i > 0; --i)
+	for (int i = 0; i < count; i += 3)
 	{
-		const float t = static_cast<float>(i) / static_cast<float>(steps);
-		const float falloff = (1.0f - t) * (1.0f - t);
-		draw->AddCircleFilled(position, radius * t, alpha(color, strength * falloff), 96);
+		const ImVec2 point(points[i].x - size * 0.008f, points[i].y - size * 0.008f);
+		draw->AddCircleFilled(point, radius * 0.26f, rgba(255, 255, 255, static_cast<int>(26.0f * opacity)), 12);
 	}
 }
 
-void draw_splash_background()
+float draw_wordmark_left(ImFont* wordmark_font, float x, float y, float size, float opacity)
+{
+	const char* first = "Sachin ";
+	const char* second = "Loader";
+
+	const ImU32 white = alpha(rgba(244, 247, 255), opacity);
+	text(wordmark_font, size, ImVec2(x, y), white, first);
+
+	float cursor = x + text_width(wordmark_font, size, first);
+	const int letters = static_cast<int>(std::strlen(second));
+
+	for (int i = 0; i < letters; ++i)
+	{
+		const float t = letters <= 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(letters - 1);
+		const ImU32 color = alpha(mix(rgba(167, 139, 250), rgba(96, 165, 250), t), opacity);
+		char glyph[2] = { second[i], '\0' };
+		text(wordmark_font, size, ImVec2(cursor, y), color, glyph);
+		cursor += text_width(wordmark_font, size, glyph);
+	}
+
+	return cursor - x;
+}
+
+void draw_wordmark_center(float cx, float y, float size, float opacity)
+{
+	const float total =
+		text_width(font.brand, size, "Sachin ") +
+		text_width(font.brand, size, "Loader");
+	draw_wordmark_left(font.brand, cx - total * 0.5f, y, size, opacity);
+}
+
+// -------------------------------------------------------------- background ----
+
+struct Star
+{
+	float x;
+	float y;
+	float radius;
+	float phase;
+	float speed;
+};
+
+const std::array<Star, 84>& stars()
+{
+	static const std::array<Star, 84> value = [] {
+		std::array<Star, 84> result{};
+		unsigned int seed = 0x51ED270Bu;
+
+		for (Star& star : result)
+		{
+			seed = seed * 1664525u + 1013904223u;
+			star.x = 0.05f + static_cast<float>((seed >> 8) & 0xFFFFu) / 65535.0f * 0.90f;
+			seed = seed * 1664525u + 1013904223u;
+			star.y = 0.05f + static_cast<float>((seed >> 8) & 0xFFFFu) / 65535.0f * 0.72f;
+			seed = seed * 1664525u + 1013904223u;
+			star.radius = 0.7f + static_cast<float>((seed >> 8) & 0xFFu) / 255.0f * 1.1f;
+			seed = seed * 1664525u + 1013904223u;
+			star.phase = static_cast<float>((seed >> 8) & 0xFFu) / 255.0f * 6.28318f;
+			seed = seed * 1664525u + 1013904223u;
+			star.speed = 0.4f + static_cast<float>((seed >> 8) & 0xFFu) / 255.0f * 0.9f;
+		}
+		return result;
+	}();
+
+	return value;
+}
+
+const std::vector<std::pair<int, int>>& star_links()
+{
+	static const std::vector<std::pair<int, int>> value = [] {
+		std::vector<std::pair<int, int>> result;
+		const std::array<Star, 84>& points = stars();
+
+		for (int i = 0; i < static_cast<int>(points.size()); ++i)
+		{
+			for (int j = i + 1; j < static_cast<int>(points.size()); ++j)
+			{
+				const float dx = points[i].x - points[j].x;
+				const float dy = (points[i].y - points[j].y) * 0.85f;
+				if (dx * dx + dy * dy < 0.018f && (i + j) % 3 == 0)
+					result.emplace_back(i, j);
+			}
+		}
+		return result;
+	}();
+
+	return value;
+}
+
+void draw_stars()
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float w = app::kWidth;
+	const float h = app::kHeight;
+	const std::array<Star, 84>& points = stars();
+
+	for (const auto& link : star_links())
+	{
+		const Star& a = points[link.first];
+		const Star& b = points[link.second];
+		const float twinkle = 0.5f + 0.5f * std::sin(state.time * 0.5f + a.phase + b.phase);
+		draw->AddLine(
+			ImVec2(a.x * w, a.y * h),
+			ImVec2(b.x * w, b.y * h),
+			rgba(120, 150, 255, static_cast<int>(5.0f + 7.0f * twinkle)));
+	}
+
+	for (const Star& star : points)
+	{
+		const float twinkle = 0.55f + 0.45f * std::sin(state.time * star.speed + star.phase);
+		draw->AddCircleFilled(
+			ImVec2(star.x * w, star.y * h),
+			star.radius,
+			rgba(168, 188, 255, static_cast<int>(18.0f + 30.0f * twinkle)),
+			8);
+	}
+}
+
+void draw_waves(float strength = 1.0f)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float w = app::kWidth;
+	const float h = app::kHeight;
+	const float t = state.time;
+
+	soft_glow(ImVec2(20.0f, h + 20.0f), 330.0f, rgba(37, 99, 235), 0.012f * strength, 24);
+	soft_glow(ImVec2(w - 10.0f, h + 10.0f), 360.0f, rgba(109, 67, 255), 0.012f * strength, 24);
+
+	draw->PushClipRect(ImVec2(0.0f, h - 250.0f), ImVec2(w, h), true);
+
+	for (int layer = 0; layer < 5; ++layer)
+	{
+		const float base = h - 34.0f + layer * 17.0f;
+		const float amplitude = 15.0f + layer * 5.0f;
+		const float phase = layer * 1.37f + t * (0.22f + layer * 0.015f);
+		const ImU32 color = layer % 2 == 0
+			? rgba(59, 130, 246, static_cast<int>((10.0f + layer * 1.5f) * strength))
+			: rgba(139, 92, 246, static_cast<int>((9.0f + layer * 1.5f) * strength));
+
+		draw->PathClear();
+		for (float x = -34.0f; x <= w + 34.0f; x += 10.0f)
+		{
+			const float y = base
+				+ std::sin(x * 0.0068f + phase) * amplitude
+				+ std::sin(x * 0.017f - phase * 0.62f) * amplitude * 0.36f;
+			draw->PathLineTo(ImVec2(x, y));
+		}
+		draw->PathStroke(alpha(color, 0.22f), 6.0f, 0);
+		draw->PathStroke(color, 1.15f, 0);
+	}
+
+	draw->PopClipRect();
+}
+
+void draw_background(bool grid)
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	const float w = app::kWidth;
@@ -683,569 +613,558 @@ void draw_splash_background()
 
 	draw->AddRectFilledMultiColor(
 		ImVec2(0, 0), ImVec2(w, h),
-		rgba(12, 17, 46), rgba(9, 12, 34),
-		rgba(4, 5, 13), rgba(6, 8, 22));
+		kBgTop, kBgTop, kBgBottom, kBgBottom);
 
-	soft_glow(ImVec2(w * 0.50f, h * 0.42f), 560.0f, rgba(74, 58, 182), 0.011f, 34);
-	soft_glow(ImVec2(w * 0.12f, h * 0.04f), 360.0f, rgba(44, 74, 168), 0.007f, 26);
-	soft_glow(ImVec2(w * 0.88f, h * 0.94f), 420.0f, rgba(102, 60, 214), 0.008f, 26);
+	soft_glow(ImVec2(w * 0.50f, -30.0f), 470.0f, rgba(88, 62, 210), 0.020f, 28);
+	soft_glow(ImVec2(w * 0.14f, h * 0.34f), 320.0f, rgba(30, 78, 180), 0.010f, 22);
+	soft_glow(ImVec2(w * 0.90f, h * 0.76f), 400.0f, rgba(104, 53, 220), 0.010f, 22);
 
-	draw->AddRectFilledMultiColor(
-		ImVec2(0, 0), ImVec2(w * 0.66f, h * 0.68f),
-		rgba(96, 112, 196, 16), rgba(96, 112, 196, 0),
-		rgba(96, 112, 196, 0), rgba(96, 112, 196, 0));
-
-	static const std::array<ImVec2, 460> grain = [] {
-		std::array<ImVec2, 460> points{};
-		unsigned int seed = 0x9E3779B9u;
-		for (ImVec2& point : points)
-		{
-			seed = seed * 1664525u + 1013904223u;
-			point.x = static_cast<float>((seed >> 8) & 0xFFFFu) / 65535.0f;
-			seed = seed * 1664525u + 1013904223u;
-			point.y = static_cast<float>((seed >> 8) & 0xFFFFu) / 65535.0f;
-		}
-		return points;
-	}();
-
-	for (size_t i = 0; i < grain.size(); ++i)
+	if (grid)
 	{
-		const ImVec2 point(grain[i].x * w, grain[i].y * h);
-		const float strength = 0.012f + static_cast<float>(i % 5) * 0.0035f;
-		draw->AddRectFilled(point, ImVec2(point.x + 1.2f, point.y + 1.2f),
-			alpha(rgba(190, 202, 255), strength));
+		for (float x = 72.0f; x < w; x += 72.0f)
+			draw->AddLine(ImVec2(x, 0), ImVec2(x, h), rgba(255, 255, 255, 4));
+		for (float y = 72.0f; y < h; y += 72.0f)
+			draw->AddLine(ImVec2(0, y), ImVec2(w, y), rgba(255, 255, 255, 4));
 	}
 
-	draw->AddRectFilledMultiColor(
-		ImVec2(0, 0), ImVec2(w * 0.18f, h),
-		rgba(2, 3, 10, 70), rgba(2, 3, 10, 0),
-		rgba(2, 3, 10, 0), rgba(2, 3, 10, 70));
-	draw->AddRectFilledMultiColor(
-		ImVec2(w * 0.82f, 0), ImVec2(w, h),
-		rgba(2, 3, 10, 0), rgba(2, 3, 10, 70),
-		rgba(2, 3, 10, 70), rgba(2, 3, 10, 0));
-	draw->AddRectFilledMultiColor(
-		ImVec2(0, h * 0.66f), ImVec2(w, h),
-		rgba(2, 2, 8, 0), rgba(2, 2, 8, 0),
-		rgba(2, 2, 8, 140), rgba(2, 2, 8, 140));
+	draw_stars();
+	draw_waves();
 
-	draw->AddRect(ImVec2(0.5f, 0.5f), ImVec2(w - 0.5f, h - 0.5f),
-		rgba(58, 68, 126, 150), 18.0f, 1.0f, 0);
-	draw->AddRect(ImVec2(2.0f, 2.0f), ImVec2(w - 2.0f, h - 2.0f),
-		rgba(122, 136, 216, 18), 16.0f, 1.0f, 0);
+	draw->AddRectFilledMultiColor(
+		ImVec2(0, 0), ImVec2(w * 0.16f, h),
+		rgba(1, 3, 10, 90), rgba(1, 3, 10, 0),
+		rgba(1, 3, 10, 0), rgba(1, 3, 10, 90));
+	draw->AddRectFilledMultiColor(
+		ImVec2(w * 0.84f, 0), ImVec2(w, h),
+		rgba(1, 3, 10, 0), rgba(1, 3, 10, 90),
+		rgba(1, 3, 10, 90), rgba(1, 3, 10, 0));
+	draw->AddRectFilledMultiColor(
+		ImVec2(0, h * 0.72f), ImVec2(w, h),
+		rgba(2, 4, 12, 0), rgba(2, 4, 12, 0),
+		rgba(2, 4, 12, 120), rgba(2, 4, 12, 120));
+
+	draw->AddRect(ImVec2(0.5f, 0.5f), ImVec2(w - 0.5f, h - 0.5f), rgba(94, 116, 178, 34), 0.0f, 1.0f);
 }
 
-void draw_progress_ring(ImVec2 center, float radius, float thickness, float progress)
+// -------------------------------------------------------------- components ----
+
+void draw_chrome()
 {
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const ImU32 violet = rgba(126, 79, 255);
-	const ImU32 track = rgba(37, 39, 76);
+	const float w = app::kWidth;
 
-	draw->AddCircle(center, radius, track, 128, thickness);
-	draw->AddCircle(center, radius + thickness * 0.62f, rgba(5, 6, 20, 90), 128, 1.5f);
-	draw->AddCircle(center, radius - thickness * 0.62f, rgba(5, 6, 20, 110), 128, 1.5f);
+	ImGui::SetCursorScreenPos(ImVec2(0, 0));
+	ImGui::InvisibleButton("##window_drag", ImVec2(w - 104.0f, 64.0f));
+	if (ImGui::IsItemClicked())
+		StartWindowDrag();
 
-	if (progress <= 0.001f)
-		return;
-
-	const float start = -1.570796f;
-	const float end = start + 6.283185f * clampf(progress, 0.0f, 1.0f);
-	const float pulse = state.animations ? 0.75f + 0.25f * std::sin(state.time * 1.7f) : 1.0f;
-
-	for (int i = 8; i >= 1; --i)
+	const Rect minimize = rect(w - 84.0f, 18.0f, w - 54.0f, 46.0f);
+	ImGui::SetCursorScreenPos(minimize.min);
+	const bool minimize_clicked = ImGui::InvisibleButton("##window_minimize", ImVec2(width(minimize), height(minimize)));
+	if (ImGui::IsItemHovered())
 	{
-		draw->PathClear();
-		draw->PathArcTo(center, radius, start, end, 96);
-		draw->PathStroke(alpha(violet, 0.013f * pulse), thickness + i * 2.2f, 0);
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+		box(minimize, alpha(rgba(255, 255, 255), 0.06f), 8.0f);
 	}
+	icon_minimize(center(minimize), 14.0f, rgba(150, 162, 192));
 
-	draw->PathClear();
-	draw->PathArcTo(center, radius, start, end, 96);
-	draw->PathStroke(violet, thickness, 0);
+	const Rect close = rect(w - 50.0f, 18.0f, w - 20.0f, 46.0f);
+	ImGui::SetCursorScreenPos(close.min);
+	const bool close_clicked = ImGui::InvisibleButton("##window_close", ImVec2(width(close), height(close)));
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+		box(close, alpha(kRed, 0.16f), 8.0f);
+	}
+	icon_close(center(close), 14.0f, ImGui::IsItemHovered() ? kRed : rgba(150, 162, 192));
 
-	const ImVec2 cap_start(center.x + std::cos(start) * radius, center.y + std::sin(start) * radius);
-	const ImVec2 cap_end(center.x + std::cos(end) * radius, center.y + std::sin(end) * radius);
-	draw->AddCircleFilled(cap_start, thickness * 0.5f, rgba(151, 115, 255));
-	draw->AddCircleFilled(cap_end, thickness * 0.5f, violet);
+	if (minimize_clicked)
+		ShowWindow(g_hwnd, SW_MINIMIZE);
+
+	if (close_clicked)
+		PostQuitMessage(0);
 }
 
-bool splash_button(const char* id, const Rect& r, const char* label)
+bool primary_button(const char* id, const Rect& r, const char* label, bool enabled = true, bool arrow = true)
+{
+	ImGui::SetCursorScreenPos(r.min);
+	const bool clicked = enabled && ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
+	const bool hovered = enabled && ImGui::IsItemHovered();
+	const bool active = enabled && ImGui::IsItemActive();
+
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+	const float t = animate(id, hovered ? 1.0f : 0.0f, 12.0f);
+
+	if (!enabled)
+	{
+		box(r, rgba(20, 28, 54, 190), 11.0f, rgba(255, 255, 255, 16), 1.0f);
+		const ImU32 label_color = rgba(126, 138, 168);
+		const float label_w = text_width(font.button, 17.0f, label);
+		const float icon_w = arrow ? 16.0f : 0.0f;
+		const float gap = arrow ? 10.0f : 0.0f;
+		const float start = r.min.x + (width(r) - label_w - icon_w - gap) * 0.5f;
+		const float cy = r.min.y + height(r) * 0.5f;
+		text(font.button, 17.0f, ImVec2(start, cy - 9.0f), label_color, label);
+		if (arrow)
+			icon_arrow(ImVec2(start + label_w + gap + 8.0f, cy), 16.0f, label_color);
+		return false;
+	}
+
+	if (t > 0.01f)
+		soft_glow(center(r), width(r) * 0.58f, rgba(90, 90, 255), 0.020f * t, 20);
+
+	ImU32 left = mix(rgba(124, 58, 237), rgba(153, 105, 255), t * 0.55f);
+	ImU32 right = mix(rgba(37, 99, 235), rgba(80, 148, 255), t * 0.55f);
+
+	if (active)
+	{
+		left = mix(left, rgba(0, 0, 0), 0.10f);
+		right = mix(right, rgba(0, 0, 0), 0.10f);
+	}
+
+	gradient_round_rect(r, 11.0f, left, right);
+	ImGui::GetWindowDrawList()->AddRect(r.min, r.max, alpha(rgba(255, 255, 255), 0.20f), 11.0f, 1.0f);
+
+	const float label_w = text_width(font.button, 17.0f, label);
+	const float icon_w = arrow ? 16.0f : 0.0f;
+	const float gap = arrow ? 11.0f : 0.0f;
+	const float total = label_w + icon_w + gap;
+	const float start = r.min.x + (width(r) - total) * 0.5f;
+	const float cy = r.min.y + height(r) * 0.5f;
+
+	text(font.button, 17.0f, ImVec2(start, cy - 9.5f), rgba(255, 255, 255), label);
+	if (arrow)
+		icon_arrow(ImVec2(start + label_w + gap + 8.0f, cy), 16.0f, rgba(255, 255, 255));
+
+	return clicked;
+}
+
+bool ghost_button(const char* id, const Rect& r, const char* label)
 {
 	ImGui::SetCursorScreenPos(r.min);
 	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
 	const bool hovered = ImGui::IsItemHovered();
-	const bool active = ImGui::IsItemActive();
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
 	const float t = animate(id, hovered ? 1.0f : 0.0f, 12.0f);
-
-	if (t > 0.01f)
-	{
-		ImDrawList* draw = ImGui::GetWindowDrawList();
-		for (int i = 3; i >= 1; --i)
-		{
-			draw->AddRect(
-				ImVec2(r.min.x - i * 2.0f, r.min.y - i * 2.0f),
-				ImVec2(r.max.x + i * 2.0f, r.max.y + i * 2.0f),
-				alpha(rgba(126, 79, 255), 0.028f * static_cast<float>(i) * t),
-				12.0f + i, 1.0f, 0);
-		}
-	}
-
-	const ImU32 fill = mix(rgba(15, 19, 46), rgba(27, 32, 78), t);
-	const ImU32 border = mix(rgba(47, 52, 106), rgba(126, 79, 255), t * 0.75f);
-	box(r, active ? mix(fill, rgba(0, 0, 0), 0.12f) : fill, 11.0f, border, 1.0f);
-
-	ImGui::GetWindowDrawList()->AddLine(
-		ImVec2(r.min.x + 10.0f, r.min.y + 1.0f),
-		ImVec2(r.max.x - 10.0f, r.min.y + 1.0f),
-		alpha(rgba(255, 255, 255), 0.05f + 0.05f * t));
-
-	text_center(font.splash_button, 17.0f, r,
-		mix(rgba(232, 234, 248), rgba(255, 255, 255), t), label, -1.0f);
+	box(r, alpha(rgba(255, 255, 255), 0.03f + 0.04f * t), 9.0f,
+		mix(kLine, kLine_strong, t), 1.0f);
+	text_center(font.small_font, 13.0f, r, mix(kMuted, kText, t), label, -0.5f);
 	return clicked;
 }
 
+bool link_button(const char* id, const Rect& r, const char* label, ImU32 base_color)
+{
+	ImGui::SetCursorScreenPos(r.min);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
+	const bool hovered = ImGui::IsItemHovered();
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+	const float t = animate(id, hovered ? 1.0f : 0.0f, 14.0f);
+	const ImU32 color = mix(base_color, rgba(210, 219, 255), t);
+	const ImVec2 position(r.min.x, r.min.y + (height(r) - 14.0f) * 0.5f - 1.0f);
+	text(font.link, 14.0f, position, color, label);
+
+	if (t > 0.05f)
+		ImGui::GetWindowDrawList()->AddLine(
+			ImVec2(position.x, position.y + 18.0f),
+			ImVec2(position.x + text_width(font.link, 14.0f, label) * t, position.y + 18.0f),
+			alpha(color, 0.6f), 1.0f);
+
+	return clicked;
+}
+
+void draw_field(const char* id, const char* hint, const Rect& r, char* buffer, size_t size, bool password)
+{
+	const bool hovered = ImGui::IsMouseHoveringRect(r.min, r.max);
+	const float t = animate(id, hovered ? 1.0f : 0.0f, 14.0f);
+
+	const ImU32 fill = mix(kField, rgba(15, 25, 49, 235), t * 0.8f);
+	box(r, fill, 10.0f);
+	ImGui::GetWindowDrawList()->AddLine(
+		ImVec2(r.min.x + 14.0f, r.min.y + 1.0f),
+		ImVec2(r.max.x - 14.0f, r.min.y + 1.0f),
+		alpha(rgba(255, 255, 255), 0.035f));
+
+	ImGui::PushFont(font.input);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(50.0f, 17.0f));
+	ImGui::SetCursorScreenPos(r.min);
+	ImGui::SetNextItemWidth(width(r));
+
+	ImGuiInputTextFlags flags = 0;
+	if (password && !state.reveal_password)
+		flags |= ImGuiInputTextFlags_Password;
+
+	ImGui::InputTextWithHint(id, hint, buffer, size, flags);
+
+	const bool active = ImGui::IsItemActive();
+	ImGui::PopStyleVar();
+	ImGui::PopFont();
+
+	const ImU32 border = active
+		? alpha(kViolet, 0.75f)
+		: mix(kLine, alpha(kBlue, 0.55f), t);
+	ImGui::GetWindowDrawList()->AddRect(r.min, r.max, border, 10.0f, active ? 1.5f : 1.0f);
+
+	const ImVec2 icon_center(r.min.x + 27.0f, r.min.y + height(r) * 0.5f);
+	const ImU32 icon_color = active ? rgba(179, 160, 255) : mix(kDim, kMuted, t);
+	if (password)
+		icon_lock(icon_center, 18.0f, icon_color);
+	else
+		icon_user(icon_center, 18.0f, icon_color);
+
+	if (password)
+	{
+		ImGui::PushID(id);
+		const Rect eye = rect(r.max.x - 48.0f, r.min.y, r.max.x - 8.0f, r.max.y);
+		ImGui::SetCursorScreenPos(eye.min);
+		const bool eye_clicked = ImGui::InvisibleButton("##reveal", ImVec2(width(eye), height(eye)));
+		const bool eye_hovered = ImGui::IsItemHovered();
+		if (eye_hovered)
+			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+		icon_eye(center(eye), 18.0f, eye_hovered ? rgba(200, 210, 240) : rgba(120, 133, 166), state.reveal_password);
+		if (eye_clicked)
+			state.reveal_password = !state.reveal_password;
+		ImGui::PopID();
+	}
+}
+
+bool checkbox(const char* id, const Rect& r, bool* value)
+{
+	ImGui::SetCursorScreenPos(r.min);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
+	const bool hovered = ImGui::IsItemHovered();
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+	const float t = animate(id, hovered ? 1.0f : 0.0f, 14.0f);
+	const Rect square = rect(r.min.x, r.min.y + (height(r) - 18.0f) * 0.5f, r.min.x + 18.0f, r.min.y + (height(r) + 18.0f) * 0.5f);
+
+	box(square,
+		*value ? alpha(kViolet, 0.85f) : alpha(rgba(8, 14, 30), 0.9f),
+		4.0f,
+		*value ? alpha(kViolet, 0.95f) : mix(rgba(70, 89, 132), alpha(kBlue, 0.75f), t),
+		1.2f);
+
+	if (*value)
+	{
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+		const ImVec2 c = center(square);
+		draw->AddLine(ImVec2(c.x - 4.0f, c.y), ImVec2(c.x - 1.0f, c.y + 3.0f), rgba(255, 255, 255), 1.8f);
+		draw->AddLine(ImVec2(c.x - 1.0f, c.y + 3.0f), ImVec2(c.x + 5.0f, c.y - 4.0f), rgba(255, 255, 255), 1.8f);
+	}
+
+	text(font.link, 14.0f, ImVec2(r.min.x + 28.0f, r.min.y + (height(r) - 14.0f) * 0.5f - 1.0f),
+		mix(kMuted, kText, t * 0.7f), "Remember me");
+
+	if (clicked)
+		*value = !*value;
+
+	return clicked;
+}
+
+void draw_banner(const Rect& r, bool error, const char* message)
+{
+	const float reveal = clampf(state.banner_age * 8.0f, 0.0f, 1.0f);
+	const ImU32 tone = error ? kRed : rgba(96, 165, 250);
+
+	box(r, alpha(error ? rgba(104, 20, 39) : rgba(16, 38, 74), 0.72f * reveal), 8.0f, alpha(tone, 0.42f * reveal), 1.0f);
+
+	const ImVec2 icon_c(r.min.x + 22.0f, r.min.y + height(r) * 0.5f);
+	ImGui::GetWindowDrawList()->AddCircleFilled(icon_c, 8.5f, alpha(tone, 0.85f * reveal), 20);
+
+	if (error)
+	{
+		ImGui::GetWindowDrawList()->AddLine(ImVec2(icon_c.x - 3.0f, icon_c.y - 3.0f), ImVec2(icon_c.x + 3.0f, icon_c.y + 3.0f), rgba(60, 12, 24), 1.5f);
+		ImGui::GetWindowDrawList()->AddLine(ImVec2(icon_c.x + 3.0f, icon_c.y - 3.0f), ImVec2(icon_c.x - 3.0f, icon_c.y + 3.0f), rgba(60, 12, 24), 1.5f);
+	}
+	else
+	{
+		text_center(font.tiny, 11.0f, rect(icon_c.x - 8.0f, icon_c.y - 8.0f, icon_c.x + 8.0f, icon_c.y + 8.0f), rgba(12, 24, 48), "i");
+	}
+
+	text(font.small_font, 13.0f, ImVec2(r.min.x + 40.0f, r.min.y + (height(r) - 13.0f) * 0.5f - 1.0f),
+		alpha(error ? rgba(255, 165, 178) : rgba(170, 204, 255), reveal), message);
+}
+
+void draw_footer(float opacity = 1.0f)
+{
+	const float w = app::kWidth;
+	const float h = app::kHeight;
+	text_center_x(font.tiny, 11.0f, w * 0.5f, h - 44.0f, alpha(kDim, opacity), "Secure - Private - Fast");
+}
+
+void status_row(const Rect& card, float y, const char* label, const char* value, ImU32 dot = 0)
+{
+	text(font.micro, 10.0f, ImVec2(card.min.x + 24.0f, y), kDim, label);
+
+	float right = card.max.x - 24.0f;
+	if (dot != 0)
+	{
+		ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(right - text_width(font.small_font, 13.0f, value) - 12.0f, y + 6.5f), 3.0f, dot);
+		right -= 10.0f;
+	}
+
+	text(font.small_font, 13.0f, ImVec2(right - text_width(font.small_font, 13.0f, value), y - 1.0f), kText, value);
+}
+
+// ----------------------------------------------------------------- screens ----
+
 void page_splash()
 {
-	draw_splash_background();
+	draw_background(false);
 
 	const float w = app::kWidth;
-	const ImVec2 ring_center(w * 0.5f, 294.0f);
-	const float radius = 90.0f;
-	const float thickness = 13.0f;
-	const float progress = clampf(state.splash_progress, 0.0f, 1.0f);
+	const float h = app::kHeight;
+	const float reveal = clampf(state.screen_time * 2.2f, 0.0f, 1.0f);
+	const float progress = clampf(state.screen_time / 2.2f, 0.0f, 1.0f);
+	const float pulse = 1.0f + 0.012f * std::sin(state.time * 1.7f);
 
-	text_center(font.splash_title, 24.0f, rect(0, 82, w, 120),
-		rgba(245, 246, 252), "Launching App 3...");
+	soft_glow(ImVec2(w * 0.5f, h * 0.40f), 300.0f, rgba(92, 70, 230), 0.014f * reveal, 28);
+	draw_logo(ImVec2(w * 0.5f, h * 0.5f - 92.0f), 126.0f * pulse, reveal);
+	draw_wordmark_center(w * 0.5f, h * 0.5f - 8.0f, 42.0f, reveal);
+	text_center_x(font.subtitle, 19.0f, w * 0.5f, h * 0.5f + 48.0f, alpha(kMuted, reveal), "Secure -> Private -> Fast");
 
-	soft_glow(ring_center, radius + 82.0f, rgba(126, 79, 255), 0.012f, 30);
-	draw_progress_ring(ring_center, radius, thickness, progress);
+	const Rect track = rect(w * 0.5f - 160.0f, h * 0.5f + 118.0f, w * 0.5f + 160.0f, h * 0.5f + 123.0f);
+	box(track, rgba(255, 255, 255, 14), 2.5f);
+
+	if (progress > 0.002f)
+	{
+		const Rect fill = rect(track.min.x, track.min.y, track.min.x + width(track) * progress, track.max.y);
+		gradient_round_rect(fill, 2.5f, rgba(124, 77, 255), rgba(59, 130, 246));
+
+		const ImVec2 head(fill.max.x, center(fill).y);
+		soft_glow(head, 22.0f, rgba(140, 120, 255), 0.05f, 12);
+		ImGui::GetWindowDrawList()->AddCircleFilled(head, 2.6f, rgba(220, 226, 255));
+	}
 
 	char percent[16];
 	std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(progress * 100.0f + 0.5f));
-	text_center(font.splash_percent, 30.0f,
-		rect(ring_center.x - 62.0f, ring_center.y - 24.0f, ring_center.x + 62.0f, ring_center.y + 24.0f),
-		rgba(247, 248, 255), percent);
+	text(font.micro, 10.0f, ImVec2(track.max.x - text_width(font.micro, 10.0f, percent), track.min.y + 12.0f), alpha(kDim, reveal), percent);
 
-	text_center(font.splash_body, 16.0f, rect(0, 422, w, 456),
-		rgba(148, 152, 184), "Preparing application...");
+	text_center_x(font.tiny, 11.0f, w * 0.5f, track.min.y + 12.0f, alpha(kMuted, reveal), progress < 0.98f ? "Starting secure session..." : "Ready");
 
-	const Rect cancel = rect(w * 0.5f - 140.0f, 566.0f, w * 0.5f + 140.0f, 628.0f);
-	if (splash_button("##splash_cancel", cancel, "Cancel") ||
-		ImGui::IsKeyPressed(ImGuiKey_Escape))
-	{
-		state.splash = false;
-		state.page = 0;
-	}
+	char version[32];
+	std::snprintf(version, sizeof(version), "VERSION %s", app::kVersion);
+	text_center_x(font.micro, 10.0f, w * 0.5f, h - 44.0f, alpha(kDim, reveal), version);
 }
 
-void page_dashboard()
+void page_login_form()
 {
-	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float w = app::kWidth;
+	const float h = app::kHeight;
+	const float cx = w * 0.5f;
+	const float form_w = 560.0f;
+	const float form_x = cx - form_w * 0.5f;
 
-	text(font.title_bold, 27.0f, ImVec2(260, 92), theme.text, "Dashboard");
-	text(font.small_font, 12.0f, ImVec2(260, 129), theme.muted,
-		"Welcome back. Pick a title and build your loadout.");
+	draw_logo(ImVec2(cx, 116.0f), 92.0f);
+	draw_wordmark_center(cx, 166.0f, 42.0f, 1.0f);
+	text_center_x(font.subtitle, 19.0f, cx, 218.0f, kMuted, "Secure -> Private -> Fast");
 
-	pill(rect(900, 100, 1092, 134), "ALL SYSTEMS ONLINE", theme.green);
+	bool has_banner = state.error || state.info;
+	float y = 300.0f;
 
-	const Rect hero = rect(260, 166, 1092, 356);
-	shadow(hero, 22.0f, rgba(0, 0, 0, 110));
-	box(hero, rgba(18, 15, 21), 16.0f, alpha(accent(), 0.18f), 1.0f);
-
-	draw->PushClipRect(hero.min, hero.max, true);
-	if (state.glow)
+	if (has_banner)
 	{
-		glow(ImVec2(1010, 176), 230.0f, accent(), 26);
-		draw->AddCircle(ImVec2(1010, 176), 92.0f, alpha(accent(), 0.12f), 64, 1.0f);
-		draw->AddCircle(ImVec2(1010, 176), 132.0f, alpha(accent(), 0.07f), 64, 1.0f);
-	}
-	draw->PopClipRect();
-
-	text(font.display, 32.0f, ImVec2(288, 190), theme.text, "SACHIN DEV");
-	const float title_width = text_width(font.display, 32.0f, "SACHIN DEV");
-	text(font.display, 32.0f, ImVec2(288 + title_width + 8, 190), accent(), "LOADER");
-
-	text(font.small_font, 12.0f, ImVec2(288, 242), theme.muted,
-		"A clean launcher interface built for speed.");
-
-	if (button("##launch_loader", rect(288, 278, 458, 316), "LAUNCH LOADER", true, Icon::Play))
-	{
-		state.page = 1;
-		state.loading = false;
-		state.load = 0.0f;
+		const char* message = state.error
+			? "Error: Invalid username or password."
+			: "Password recovery is not available in this preview.";
+		draw_banner(rect(form_x, 260.0f, form_x + form_w, 304.0f), state.error, message);
+		y = 322.0f;
 	}
 
-	if (button("##hero_settings", rect(470, 278, 590, 316), "SETTINGS", false, Icon::Sliders))
-		state.page = 2;
+	const Rect user_field = rect(form_x, y, form_x + form_w, y + 56.0f);
+	draw_field("##username", "Username or IP", user_field, state.username, sizeof(state.username), false);
 
-	draw->AddLine(ImVec2(792, 190), ImVec2(792, 334), theme.line);
+	const Rect pass_field = rect(form_x, y + 70.0f, form_x + form_w, y + 126.0f);
+	draw_field("##password", "Password", pass_field, state.password, sizeof(state.password), true);
 
-	const char* stat_values[3] = { "06", "15", "UI" };
-	const char* stat_labels[3] = { "GAMES", "MODULES", "BUILD" };
-	const float stat_x[3] = { 824.0f, 922.0f, 1020.0f };
+	const Rect remember = rect(form_x + 2.0f, y + 134.0f, form_x + 138.0f, y + 158.0f);
+	checkbox("##remember", remember, &state.remember);
 
-	for (int i = 0; i < 3; ++i)
+	const char* forgot_label = "Forgot password?";
+	const float forgot_w = text_width(font.link, 14.0f, forgot_label);
+	const Rect forgot = rect(form_x + form_w - forgot_w - 4.0f, y + 134.0f, form_x + form_w, y + 158.0f);
+	if (link_button("##forgot", forgot, forgot_label, rgba(147, 130, 255)))
 	{
-		text(font.display, 28.0f, ImVec2(stat_x[i], 218), i == 2 ? accent() : theme.text, stat_values[i]);
-		text(font.micro, 8.0f, ImVec2(stat_x[i] + 1, 254), theme.dim, stat_labels[i]);
+		state.info = true;
+		state.error = false;
+		state.banner_age = 0.0f;
 	}
 
-	text(font.micro, 9.0f, ImVec2(260, 380), theme.dim, "SELECT A GAME");
-	text(font.micro, 9.0f, ImVec2(1032, 380), theme.dim, "06 AVAILABLE");
+	const Rect login = rect(form_x, y + 176.0f, form_x + form_w, y + 230.0f);
+	const bool login_clicked = primary_button("##login", login, "Login", true, true);
+	const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
 
-	for (int i = 0; i < 6; ++i)
+	if (login_clicked || enter)
 	{
-		const int column = i % 3;
-		const int row = i / 3;
-		const float x = 260.0f + column * 282.0f;
-		const float y = 398.0f + row * 130.0f;
+		state.error = false;
+		state.info = false;
 
-		static const char* ids[6] = {
-			"##game_0", "##game_1", "##game_2",
-			"##game_3", "##game_4", "##game_5"
-		};
-
-		Rect card = rect(x, y, x + 268.0f, y + 118.0f);
-
-		ImGui::SetCursorScreenPos(card.min);
-		const bool clicked = ImGui::InvisibleButton(ids[i], ImVec2(width(card), height(card)));
-		const bool hovered = ImGui::IsItemHovered();
-		const bool selected = state.game == i && i < 5;
-		const float t = animate(ids[i], hovered ? 1.0f : 0.0f, 13.0f);
-
-		card.min.y -= 2.0f * t;
-		card.max.y -= 2.0f * t;
-
-		shadow(card, 14.0f, rgba(0, 0, 0, 70 + static_cast<int>(t * 40.0f)));
-		box(card,
-			mix(theme.panel, theme.panel2, t * 0.8f),
-			13.0f,
-			selected ? alpha(accent(), 0.7f) : (t > 0.01f ? theme.line_bright : theme.line),
-			selected ? 1.5f : 1.0f);
-
-		const Rect art = rect(card.min.x + 10.0f, card.min.y + 10.0f, card.max.x - 10.0f, card.min.y + 68.0f);
-		box(art, mix(rgba(28, 28, 38), alpha(kGames[i].color, 0.30f), 0.55f), 9.0f, 0, 0.0f);
-
-		draw->PushClipRect(art.min, art.max, true);
-		for (float line_x = art.min.x - 30.0f; line_x < art.max.x + 40.0f; line_x += 20.0f)
-			draw->AddLine(ImVec2(line_x, art.max.y), ImVec2(line_x + 70.0f, art.min.y), rgba(255, 255, 255, 8));
-		draw->PopClipRect();
-
-		text(font.medium_bold, 19.0f, ImVec2(art.min.x + 12, art.min.y + 18),
-			alpha(rgba(255, 255, 255), 0.8f), kGames[i].mark);
-
-		if (i < 5)
+		if (state.username[0] == '\0' || state.password[0] == '\0')
 		{
-			draw->AddCircleFilled(ImVec2(art.max.x - 45, art.min.y + 20), 2.5f, theme.green);
-			text(font.micro, 8.0f, ImVec2(art.max.x - 37, art.min.y + 15), theme.green, "READY");
+			state.error = true;
+			state.banner_age = 0.0f;
 		}
 		else
 		{
-			text(font.micro, 8.0f, ImVec2(art.max.x - 64, art.min.y + 15), theme.dim, "SOON");
-		}
-
-		text(font.bold, 14.0f, ImVec2(card.min.x + 12, card.min.y + 80), theme.text, kGames[i].name);
-		text(font.micro, 8.0f, ImVec2(card.min.x + 12, card.min.y + 99), theme.dim, kGames[i].tag);
-
-		icon(Icon::Chevron, ImVec2(card.max.x - 18.0f, card.min.y + 88.0f), 10.0f,
-			mix(theme.dim, accent(), t));
-
-		if (clicked && i < 5)
-		{
-			state.game = i;
-			state.page = 1;
-			state.loading = false;
-			state.load = 0.0f;
+			state.authenticating = true;
+			state.auth_time = 0.0f;
 		}
 	}
+
+	draw_footer();
 }
 
-void feature_row(int index, float y, float x, float w)
+void page_login_loading()
 {
-	static const char* ids[5] = {
-		"##feature_aimbot", "##feature_esp", "##feature_radar",
-		"##feature_recoil", "##feature_stream"
-	};
-	static const char* on_ids[5] = {
-		"##on_aimbot", "##on_esp", "##on_radar",
-		"##on_recoil", "##on_stream"
-	};
+	const float w = app::kWidth;
+	const float h = app::kHeight;
+	const float cx = w * 0.5f;
 
-	const Rect row = rect(x, y, x + w, y + 44.0f);
-	ImGui::SetCursorScreenPos(row.min);
-	const bool clicked = ImGui::InvisibleButton(ids[index], ImVec2(width(row), height(row)));
-	const bool hovered = ImGui::IsItemHovered();
-	const bool enabled = state.features[index];
-	const float t = animate(ids[index], hovered ? 1.0f : 0.0f, 12.0f);
-	const float on = animate(on_ids[index], enabled ? 1.0f : 0.0f, 18.0f);
+	soft_glow(ImVec2(cx, 240.0f), 320.0f, rgba(92, 70, 230), 0.012f, 26);
+	draw_logo(ImVec2(cx, 150.0f), 100.0f);
+	draw_wordmark_center(cx, 204.0f, 42.0f, 1.0f);
+	text_center_x(font.subtitle, 19.0f, cx, 256.0f, kMuted, "One Loader, All Apps!");
 
-	if (t > 0.01f)
-		box(row, alpha(rgba(255, 255, 255), 0.025f * t), 8.0f, 0, 0.0f);
+	const char* auth_label = "Authenticating...";
+	const float group_w = 24.0f + 10.0f + text_width(font.body, 15.0f, auth_label);
+	const float group_x = cx - group_w * 0.5f;
+	spinner(ImVec2(group_x + 11.0f, 320.0f), 10.0f, 2.6f, rgba(176, 124, 255));
+	text(font.body, 15.0f, ImVec2(group_x + 34.0f, 311.0f), rgba(190, 198, 225), auth_label);
 
-	if (enabled)
-		ImGui::GetWindowDrawList()->AddRectFilled(
-			ImVec2(row.min.x, row.min.y + 11.0f),
-			ImVec2(row.min.x + 2.0f, row.max.y - 11.0f),
-			alpha(accent(), 0.8f), 1.0f);
+	ImGui::GetWindowDrawList()->AddCircle(ImVec2(cx - 86.0f, 352.0f), 6.0f, rgba(110, 124, 160), 24, 1.4f);
+	text(font.link, 14.0f, ImVec2(cx - 72.0f, 344.0f), kMuted, "This might take a moment");
 
-	text(font.body, 13.0f, ImVec2(row.min.x + 10.0f, row.min.y + 7.0f),
-		mix(theme.text, theme.muted, 1.0f - t), kFeatureNames[index]);
-	text(font.micro, 8.0f, ImVec2(row.min.x + 10.0f, row.min.y + 25.0f), theme.dim, kFeatureDesc[index]);
+	const Rect login = rect(cx - 190.0f, 410.0f, cx + 190.0f, 464.0f);
+	primary_button("##login_busy", login, "Login", false, true);
 
-	const Rect track = rect(row.max.x - 50.0f, row.min.y + 13.0f, row.max.x - 10.0f, row.min.y + 33.0f);
-	switch_visual(track, on);
-
-	if (index < 4)
-		ImGui::GetWindowDrawList()->AddLine(
-			ImVec2(row.min.x + 10.0f, row.max.y), ImVec2(row.max.x, row.max.y),
-			theme.line, 1.0f);
-
-	if (clicked)
-		state.features[index] = !state.features[index];
-}
-
-void profile_row(int index, const char* label, float y, float x, float w)
-{
-	static const char* ids[3] = { "##profile_default", "##profile_performance", "##profile_stream" };
-	const Rect row = rect(x, y, x + w, y + 32.0f);
-	const bool selected = state.profile == index;
-
-	ImGui::SetCursorScreenPos(row.min);
-	const bool clicked = ImGui::InvisibleButton(ids[index], ImVec2(width(row), height(row)));
-	const bool hovered = ImGui::IsItemHovered();
-	const float t = animate(ids[index], hovered ? 1.0f : 0.0f, 12.0f);
-
-	box(row,
-		selected ? alpha(accent(), 0.11f) : alpha(rgba(255, 255, 255), 0.02f * t),
-		7.0f,
-		selected ? alpha(accent(), 0.28f) : (t > 0.01f ? theme.line : 0),
-		1.0f);
-
-	text(font.small_font, 12.0f, ImVec2(row.min.x + 11.0f, row.min.y + 9.0f),
-		selected ? theme.text : theme.muted, label);
-
-	if (selected)
-		icon(Icon::Check, ImVec2(row.max.x - 17.0f, row.min.y + 16.0f), 10.0f, accent());
-
-	if (clicked)
-		state.profile = index;
+	draw_footer();
 }
 
 void page_loader()
 {
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const int game_index = state.game < 5 ? state.game : 0;
-	const Game& game = kGames[game_index];
+	const float w = app::kWidth;
+	const float h = app::kHeight;
 
-	text(font.title_bold, 27.0f, ImVec2(260, 92), theme.text, "Loader");
-	text(font.small_font, 12.0f, ImVec2(260, 129), theme.muted,
-		"Configure modules for your selected title.");
+	// Header
+	draw_logo(ImVec2(50.0f, 44.0f), 30.0f);
+	draw_wordmark_left(font.brand_small, 76.0f, 30.0f, 22.0f, 1.0f);
+	text(font.micro, 9.0f, ImVec2(77.0f, 56.0f), kDim, "SECURE CLIENT");
 
-	if (button("##back", rect(1000, 96, 1092, 130), "BACK", false, Icon::Arrow))
-		state.page = 0;
+	ImGui::GetWindowDrawList()->AddLine(ImVec2(0, 86.0f), ImVec2(w, 86.0f), kLine);
 
-	const Rect card = rect(260, 166, 780, 620);
-	shadow(card, 20.0f, rgba(0, 0, 0, 100));
-	box(card, theme.panel, 16.0f, theme.line, 1.0f);
+	// Left column
+	const float left_x = 72.0f;
+	const float right_x = w - 392.0f;
 
-	const Rect art = rect(272, 178, 768, 316);
-	box(art, mix(rgba(27, 27, 36), alpha(game.color, 0.34f), 0.55f), 12.0f, 0, 0.0f);
+	text(font.micro, 10.0f, ImVec2(left_x, 124.0f), kDim, "LOADER / READY");
 
-	draw->PushClipRect(art.min, art.max, true);
-	if (state.glow)
-		glow(ImVec2(690, 236), 150.0f, game.color, 20);
-	for (float line_x = art.min.x - 40.0f; line_x < art.max.x + 50.0f; line_x += 22.0f)
-		draw->AddLine(ImVec2(line_x, art.max.y), ImVec2(line_x + 90.0f, art.min.y), rgba(255, 255, 255, 9));
-	draw->PopClipRect();
+	const char* title_a = "Ready when ";
+	const char* title_b = "you are.";
+	text(font.hero, 44.0f, ImVec2(left_x, 142.0f), kText, title_a);
+	text(font.hero, 44.0f, ImVec2(left_x + text_width(font.hero, 44.0f, title_a), 142.0f), rgba(143, 128, 255), title_b);
 
-	text(font.hero, 48.0f, ImVec2(292, 196), alpha(rgba(255, 255, 255), 0.9f), game.mark);
-	text(font.title_bold, 23.0f, ImVec2(292, 250), theme.text, game.name);
-	text(font.small_font, 10.0f, ImVec2(292, 282), theme.muted, game.tag);
+	text(font.body, 15.0f, ImVec2(left_x + 1.0f, 202.0f), kMuted, "One Loader, All Apps! Start a new session in one click.");
 
-	pill(rect(642, 194, 748, 224), "READY", theme.green);
+	// Session card
+	const Rect session = rect(left_x, 248.0f, left_x + 390.0f, 312.0f);
+	box(session, kPanel_soft, 12.0f, kLine, 1.0f);
+	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(session.min.x + 30.0f, 280.0f), 15.0f, alpha(kViolet, 0.16f), 24);
+	icon_user(ImVec2(session.min.x + 30.0f, 280.0f), 17.0f, rgba(176, 154, 255));
+	text(font.micro, 9.0f, ImVec2(session.min.x + 56.0f, 262.0f), kDim, "SIGNED IN AS");
+	const std::string user = state.session.empty() ? "local" : state.session;
+	text(font.small_font, 14.0f, ImVec2(session.min.x + 56.0f, 279.0f), kText,
+		elide(font.small_font, 14.0f, user, 250.0f).c_str());
+	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(session.max.x - 68.0f, 280.0f), 3.0f, kGreen);
+	text(font.micro, 9.0f, ImVec2(session.max.x - 58.0f, 275.0f), kGreen, "SECURE");
 
-	text(font.micro, 9.0f, ImVec2(292, 342), theme.dim, "MODULES");
-	text(font.micro, 9.0f, ImVec2(666, 342), theme.dim, "05 AVAILABLE");
+	// Launch button
+	const char* label = state.launching ? "Starting Loader" : (state.ready ? "Launch Again" : "Launch Loader");
+	const Rect launch_btn = rect(left_x, 348.0f, left_x + 300.0f, 406.0f);
+	const bool launch_clicked = primary_button("##launch_loader", launch_btn, label, !state.launching, !state.launching);
 
-	for (int i = 0; i < 5; ++i)
-		feature_row(i, 360.0f + i * 44.0f, 282.0f, 474.0f);
-
-	text(font.micro, 8.0f, ImVec2(292, 594), theme.dim, "Visual configuration only. Nothing is executed.");
-
-	const Rect status = rect(800, 166, 1092, 398);
-	shadow(status, 18.0f, rgba(0, 0, 0, 90));
-	box(status, theme.panel, 16.0f, theme.line, 1.0f);
-
-	text(font.micro, 9.0f, ImVec2(820, 186), theme.dim, "LOAD STATUS");
-	pill(rect(1014, 180, 1070, 206), state.loading ? "BUSY" : (state.load >= 0.999f ? "DONE" : "IDLE"),
-		state.loading ? accent() : (state.load >= 0.999f ? theme.green : theme.muted));
-
-	const ImVec2 ring_center(946, 268);
-	const float radius = 39.0f;
-	const float progress = state.loading ? state.load : (state.load >= 0.999f ? 1.0f : 0.0f);
-
-	draw->AddCircle(ring_center, radius, theme.panel3, 64, 7.0f);
-	if (progress > 0.001f)
+	if (launch_clicked)
 	{
-		draw->PathClear();
-		draw->PathArcTo(ring_center, radius, -1.570796f, -1.570796f + 6.283185f * progress, 64);
-		draw->PathStroke(accent(), 7.0f, 0);
+		state.launching = true;
+		state.ready = false;
+		state.launch = 0.0f;
 	}
 
-	char percent[16];
-	std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(progress * 100.0f + 0.5f));
-	text_center(font.medium_bold, 18.0f, rect(ring_center.x - 40, ring_center.y - 16, ring_center.x + 40, ring_center.y + 16),
-		theme.text, percent);
+	const float progress = state.launching ? state.launch : (state.ready ? 1.0f : 0.0f);
+	const Rect track = rect(left_x, 424.0f, left_x + 300.0f, 432.0f);
+	box(track, rgba(255, 255, 255, 11), 4.0f);
 
-	const char* status_text = state.loading
-		? "Preparing module..."
-		: (state.load >= 0.999f ? "Module ready" : "Ready to load");
-	text_center(font.small_font, 11.0f, rect(810, 316, 1082, 336), theme.muted, status_text);
-
-	const char* button_label = state.loading ? "LOADING" : (state.load >= 0.999f ? "RELOAD" : "LOAD GAME");
-	if (button("##load_game", rect(820, 344, 1072, 382), button_label, true, Icon::Bolt))
+	if (progress > 0.002f)
 	{
-		if (!state.loading)
-		{
-			state.loading = true;
-			state.load = 0.0f;
-		}
+		const Rect fill = rect(track.min.x, track.min.y, track.min.x + width(track) * progress, track.max.y);
+		gradient_round_rect(fill, 4.0f, rgba(124, 58, 237), rgba(37, 99, 235));
+		ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(fill.max.x, center(fill).y), 2.8f, rgba(215, 222, 255));
 	}
 
-	const Rect profile = rect(800, 412, 1092, 620);
-	shadow(profile, 18.0f, rgba(0, 0, 0, 90));
-	box(profile, theme.panel, 16.0f, theme.line, 1.0f);
+	char launch_status[128];
+	if (state.launching)
+		std::snprintf(launch_status, sizeof(launch_status), "Initializing modules... %d%%", static_cast<int>(progress * 100.0f + 0.5f));
+	else if (state.ready)
+		std::snprintf(launch_status, sizeof(launch_status), "Loader is ready. All systems operational.");
+	else
+		std::snprintf(launch_status, sizeof(launch_status), "Awaiting launch. Your session is secure.");
+	text(font.link, 14.0f, ImVec2(left_x + 1.0f, 444.0f), state.ready ? kGreen : kMuted, launch_status);
 
-	text(font.micro, 9.0f, ImVec2(820, 432), theme.dim, "PROFILE");
-	text(font.small_font, 11.0f, ImVec2(820, 450), theme.muted, "Visual configuration");
-
-	profile_row(0, "Default", 472.0f, 820.0f, 252.0f);
-	profile_row(1, "Performance", 508.0f, 820.0f, 252.0f);
-	profile_row(2, "Stream Safe", 544.0f, 820.0f, 252.0f);
-
-	text(font.micro, 8.0f, ImVec2(820, 590), theme.dim, "UI PREVIEW ONLY");
-}
-
-void accent_swatch(int index, float x, float y)
-{
-	static const char* ids[4] = { "##accent_orange", "##accent_cyan", "##accent_violet", "##accent_lime" };
-	const Rect swatch = rect(x, y, x + 48.0f, y + 48.0f);
-	const bool selected = state.accent == index;
-
-	ImGui::SetCursorScreenPos(swatch.min);
-	const bool clicked = ImGui::InvisibleButton(ids[index], ImVec2(48.0f, 48.0f));
-	const bool hovered = ImGui::IsItemHovered();
-	const float t = animate(ids[index], hovered ? 1.0f : 0.0f, 14.0f);
-
-	box(swatch, mix(kAccents[index], rgba(255, 255, 255), 0.12f * t), 13.0f,
-		selected ? rgba(255, 255, 255) : alpha(rgba(255, 255, 255), 0.08f),
-		selected ? 2.0f : 1.0f);
-
-	if (selected)
-		icon(Icon::Check, center(swatch), 15.0f, rgba(10, 10, 12));
-
-	if (clicked)
-		state.accent = index;
-}
-
-void setting_row(int index, const char* label, const char* desc, bool* value, float y, float x, float w)
-{
-	static const char* ids[3] = { "##setting_anim", "##setting_glow", "##setting_fps" };
-	static const char* on_ids[3] = { "##setting_anim_on", "##setting_glow_on", "##setting_fps_on" };
-	const Rect row = rect(x, y, x + w, y + 48.0f);
-
-	ImGui::SetCursorScreenPos(row.min);
-	const bool clicked = ImGui::InvisibleButton(ids[index], ImVec2(width(row), height(row)));
-	const bool hovered = ImGui::IsItemHovered();
-	const float t = animate(ids[index], hovered ? 1.0f : 0.0f, 12.0f);
-	const float on = animate(on_ids[index], *value ? 1.0f : 0.0f, 18.0f);
-
-	if (t > 0.01f)
-		box(row, alpha(rgba(255, 255, 255), 0.025f * t), 8.0f, 0, 0.0f);
-
-	text(font.body, 13.0f, ImVec2(row.min.x + 8.0f, row.min.y + 8.0f), theme.text, label);
-	text(font.micro, 8.0f, ImVec2(row.min.x + 8.0f, row.min.y + 26.0f), theme.dim, desc);
-
-	switch_visual(rect(row.max.x - 50.0f, row.min.y + 14.0f, row.max.x - 10.0f, row.min.y + 34.0f), on);
-
-	if (index < 2)
-		ImGui::GetWindowDrawList()->AddLine(
-			ImVec2(row.min.x + 8.0f, row.max.y), ImVec2(row.max.x, row.max.y),
-			theme.line, 1.0f);
-
-	if (clicked)
-		*value = !*value;
-}
-
-void page_settings()
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-
-	text(font.title_bold, 27.0f, ImVec2(260, 92), theme.text, "Settings");
-	text(font.small_font, 12.0f, ImVec2(260, 129), theme.muted,
-		"Tune the interface to match your setup.");
-
-	const Rect accent_card = rect(260, 166, 656, 428);
-	shadow(accent_card, 16.0f, rgba(0, 0, 0, 80));
-	box(accent_card, theme.panel, 16.0f, theme.line, 1.0f);
-
-	text(font.micro, 9.0f, ImVec2(284, 186), theme.dim, "ACCENT COLOR");
-	text(font.medium_bold, 17.0f, ImVec2(284, 204), theme.text, "Interface color");
-	text(font.small_font, 11.0f, ImVec2(284, 232), theme.muted,
-		"Used for highlights, buttons and active states.");
-
-	for (int i = 0; i < 4; ++i)
-		accent_swatch(i, 284.0f + i * 72.0f, 266.0f);
-
-	const char* accent_names[4] = { "ORANGE", "CYAN", "VIOLET", "LIME" };
-	for (int i = 0; i < 4; ++i)
-		text(font.micro, 8.0f, ImVec2(284.0f + i * 72.0f, 322.0f), theme.dim, accent_names[i]);
-
-	draw->AddLine(ImVec2(284, 352), ImVec2(632, 352), theme.line);
-
-	text(font.micro, 8.0f, ImVec2(284, 368), theme.dim, "PREVIEW");
-	box(rect(336, 362, 480, 382), accent(), 10.0f, alpha(rgba(255, 255, 255), 0.18f), 1.0f);
-	text_center(font.micro, 9.0f, rect(336, 362, 480, 382), rgba(10, 10, 12), "ACTIVE ELEMENT");
-
-	const Rect interface_card = rect(676, 166, 1092, 428);
-	shadow(interface_card, 16.0f, rgba(0, 0, 0, 80));
-	box(interface_card, theme.panel, 16.0f, theme.line, 1.0f);
-
-	text(font.micro, 9.0f, ImVec2(700, 186), theme.dim, "INTERFACE");
-	text(font.medium_bold, 17.0f, ImVec2(700, 204), theme.text, "Display options");
-
-	setting_row(0, "Animations", "Smooth hover and transition effects", &state.animations, 244.0f, 700.0f, 368.0f);
-	setting_row(1, "Glow effects", "Ambient light behind panels", &state.glow, 304.0f, 700.0f, 368.0f);
-	setting_row(2, "FPS counter", "Show frame rate in the status bar", &state.show_fps, 364.0f, 700.0f, 368.0f);
-
-	const Rect about = rect(260, 448, 1092, 618);
-	shadow(about, 16.0f, rgba(0, 0, 0, 80));
-	box(about, theme.panel, 16.0f, theme.line, 1.0f);
-
-	text(font.micro, 9.0f, ImVec2(284, 468), theme.dim, "ABOUT");
-	text(font.medium_bold, 18.0f, ImVec2(284, 486), theme.text, "Sachin Dev Loader");
-	text(font.micro, 8.0f, ImVec2(284, 514), theme.dim, "VERSION 2.0.0  /  UI BUILD");
-
-	text(font.small_font, 11.0f, ImVec2(284, 536), theme.muted,
-		"Pure interface build. No network calls, no process access, no hardware IDs.");
-
-	chip(rect(284, 566, 344, 590), "LOCAL");
-	chip(rect(354, 566, 414, 590), "UI ONLY");
-	chip(rect(424, 566, 510, 590), "NO BACKEND");
-
-	if (button("##reset_ui", rect(944, 486, 1068, 522), "RESET UI", false, Icon::Sliders))
+	if (ghost_button("##logout", rect(left_x, 484.0f, left_x + 110.0f, 518.0f), "Log out"))
 	{
-		state.accent = 0;
-		state.profile = 0;
-		state.features[0] = true;
-		state.features[1] = true;
-		state.features[2] = false;
-		state.features[3] = true;
-		state.features[4] = true;
-		state.animations = true;
-		state.glow = true;
-		state.show_fps = true;
+		state.authenticating = false;
+		state.error = false;
+		state.info = false;
+		state.launching = false;
+		state.ready = false;
+		state.launch = 0.0f;
+		state.reveal_password = false;
+		state.password[0] = '\0';
+		if (!state.remember)
+			state.username[0] = '\0';
+		go(Screen::Login);
 	}
+
+	// Status card
+	const Rect card = rect(right_x, 124.0f, w - 64.0f, 584.0f);
+	soft_glow(ImVec2(card.min.x + width(card) * 0.5f, 220.0f), 260.0f, rgba(86, 64, 210), 0.010f, 22);
+	box(card, rgba(9, 15, 32, 225), 18.0f, kLine, 1.0f);
+
+	text(font.micro, 10.0f, ImVec2(card.min.x + 24.0f, 148.0f), kDim, "LOADER STATUS");
+	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(card.max.x - 78.0f, 153.0f), 3.0f, kGreen);
+	text(font.micro, 9.0f, ImVec2(card.max.x - 68.0f, 148.0f), kGreen, "ONLINE");
+
+	const ImVec2 card_center(card.min.x + width(card) * 0.5f, 234.0f);
+	draw_logo(card_center, 64.0f);
+	text_center_x(font.brand_small, 22.0f, card_center.x, 278.0f, kText, "Sachin Loader");
+	char card_version[32];
+	std::snprintf(card_version, sizeof(card_version), "VERSION %s", app::kVersion);
+	text_center_x(font.micro, 10.0f, card_center.x, 306.0f, kDim, card_version);
+
+	ImGui::GetWindowDrawList()->AddLine(ImVec2(card.min.x + 24.0f, 334.0f), ImVec2(card.max.x - 24.0f, 334.0f), kLine);
+
+	status_row(card, 358.0f, "SESSION", elide(font.small_font, 13.0f, user, 180.0f).c_str());
+	status_row(card, 396.0f, "VERSION", app::kVersion);
+	status_row(card, 434.0f, "CONNECTION", "SECURE", kGreen);
+	status_row(card, 472.0f, "STATE", state.launching ? "STARTING" : (state.ready ? "READY" : "IDLE"),
+		state.ready ? kGreen : (state.launching ? rgba(176, 124, 255) : kMuted));
+
+	const Rect online = rect(card.min.x + 24.0f, 512.0f, card.max.x - 24.0f, 548.0f);
+	box(online, alpha(kGreen, 0.07f), 18.0f, alpha(kGreen, 0.18f), 1.0f);
+	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(online.min.x + 22.0f, center(online).y), 3.0f, kGreen);
+	text_center(font.micro, 9.0f, online, rgba(158, 226, 198), "ALL SYSTEMS OPERATIONAL");
+
+	// Footer
+	ImGui::GetWindowDrawList()->AddLine(ImVec2(0, h - 72.0f), ImVec2(w, h - 72.0f), kLine);
+	char version[64];
+	std::snprintf(version, sizeof(version), "v%s  /  %d FPS", app::kVersion, static_cast<int>(state.fps + 0.5f));
+	text(font.micro, 10.0f, ImVec2(72.0f, h - 44.0f), kDim, version);
+	text_center_x(font.tiny, 11.0f, w * 0.5f, h - 45.0f, kDim, "Secure - Private - Fast");
+	text(font.micro, 10.0f, ImVec2(w - 72.0f - text_width(font.micro, 10.0f, "2026 SACHIN DEV"), h - 44.0f), kDim, "2026 SACHIN DEV");
 }
 
 } // namespace
@@ -1255,6 +1174,7 @@ void app::Init()
 	ImGuiIO& io = ImGui::GetIO();
 	io.IniFilename = nullptr;
 	io.LogFilename = nullptr;
+	io.ConfigWindowsMoveFromTitleBarOnly = true;
 
 	load_fonts();
 
@@ -1263,10 +1183,18 @@ void app::Init()
 	style.WindowBorderSize = 0.0f;
 	style.WindowRounding = 0.0f;
 	style.FramePadding = ImVec2(0, 0);
+	style.FrameBorderSize = 0.0f;
+	style.FrameRounding = 0.0f;
 	style.ItemSpacing = ImVec2(0, 0);
 	style.ScrollbarSize = 0.0f;
-	style.Colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(theme.text);
-	style.Colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(theme.bg);
+	style.Colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(kText);
+	style.Colors[ImGuiCol_TextDisabled] = ImGui::ColorConvertU32ToFloat4(rgba(107, 120, 151));
+	style.Colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(kBgTop);
+	style.Colors[ImGuiCol_FrameBg] = ImVec4(0, 0, 0, 0);
+	style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0, 0, 0, 0);
+	style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0, 0, 0, 0);
+	style.Colors[ImGuiCol_Border] = ImVec4(0, 0, 0, 0);
+	style.Colors[ImGuiCol_TextSelectedBg] = ImGui::ColorConvertU32ToFloat4(alpha(kViolet, 0.45f));
 }
 
 void app::Shutdown()
@@ -1277,16 +1205,39 @@ void app::Shutdown()
 void app::Render()
 {
 	ImGuiIO& io = ImGui::GetIO();
-	state.time += io.DeltaTime;
-	state.fps += (io.Framerate - state.fps) * clampf(io.DeltaTime * 4.0f, 0.0f, 1.0f);
+	const float dt = clampf(io.DeltaTime, 0.0f, 0.05f);
 
-	if (state.loading)
+	state.time += dt;
+	state.screen_time += dt;
+	state.banner_age += dt;
+	state.fps += (io.Framerate - state.fps) * clampf(dt * 5.0f, 0.0f, 1.0f);
+
+	if (state.screen == Screen::Splash && state.screen_time >= 2.2f)
 	{
-		state.load += io.DeltaTime * 0.55f;
-		if (state.load >= 1.0f)
+		go(Screen::Login);
+	}
+
+	if (state.screen == Screen::Login && state.authenticating)
+	{
+		state.auth_time += dt;
+		if (state.auth_time >= 1.9f)
 		{
-			state.load = 1.0f;
-			state.loading = false;
+			state.authenticating = false;
+			state.session = state.username;
+			state.password[0] = '\0';
+			state.reveal_password = false;
+			go(Screen::Loader);
+		}
+	}
+
+	if (state.screen == Screen::Loader && state.launching)
+	{
+		state.launch += dt / 2.2f;
+		if (state.launch >= 1.0f)
+		{
+			state.launch = 1.0f;
+			state.launching = false;
+			state.ready = true;
 		}
 	}
 
@@ -1307,24 +1258,32 @@ void app::Render()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 	ImGui::Begin("##root", nullptr, flags);
 
-	if (state.splash)
+	switch (state.screen)
 	{
+	case Screen::Splash:
 		page_splash();
+		break;
+	case Screen::Login:
+		draw_background(false);
+		if (state.authenticating)
+			page_login_loading();
+		else
+			page_login_form();
+		break;
+	default:
+		draw_background(true);
+		page_loader();
+		break;
 	}
-	else
+
+	draw_chrome();
+
+	if (state.screen_time < 0.32f)
 	{
-		draw_background();
-		draw_sidebar();
-		draw_top_bar();
-
-		switch (state.page)
-		{
-		case 0: page_dashboard(); break;
-		case 1: page_loader(); break;
-		default: page_settings(); break;
-		}
-
-		draw_status_bar();
+		const float fade = 1.0f - state.screen_time / 0.32f;
+		ImGui::GetWindowDrawList()->AddRectFilled(
+			ImVec2(0, 0), ImVec2(app::kWidth, app::kHeight),
+			rgba(2, 4, 12, static_cast<int>(fade * 190.0f)));
 	}
 
 	ImGui::End();

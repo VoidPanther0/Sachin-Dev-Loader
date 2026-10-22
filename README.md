@@ -8,12 +8,12 @@ build is a self-contained UI preview: every control is local and visual.
 
 ## Features
 
-- Frameless 1120x700 window with a custom title bar and rounded corners
-- Startup splash screen with a textured navy gradient and glowing progress ring
-- Dashboard, Loader, and Settings pages
-- Custom-drawn navigation, cards, buttons, toggles, and progress ring
-- Four selectable accent colors
-- Animated hover and load states
+- Frameless 1024x720 window with a custom title bar and rounded corners
+- Animated splash screen with the custom Sachin Loader mark
+- Login screen with username/password fields, password reveal, remember-me
+  checkbox, inline error banner, and an authenticating state
+- Loader screen with a session summary, launch progress, status card, and log out
+- Custom-drawn brand mark, waves, constellation background, fields, and buttons
 - Segoe UI fonts loaded at runtime from the system font directory
 - Static C++ runtime, so the executable does not need the VC++ Redistributable
 - Dear ImGui 1.93.1 WIP vendored in `src/gui` (no submodules, no package manager)
@@ -70,10 +70,12 @@ Loader.vcxproj
 | Window title        | `app::kTitle` in `src/app.h`                       |
 | Window size         | `app::kWidth`, `app::kHeight` in `src/app.h`       |
 | Version label       | `app::kVersion` in `src/app.h`                     |
-| Accent colors       | `kAccents` in `src/ui.cpp`                         |
-| Sidebar branding    | `draw_sidebar()` in `src/ui.cpp`                   |
+| Brand mark          | `draw_logo()` in `src/ui.cpp`                      |
+| Wordmark colors     | `draw_wordmark_left()` in `src/ui.cpp`             |
 | Splash screen       | `page_splash()` in `src/ui.cpp`                    |
-| Pages and widgets   | `page_dashboard()`, `page_loader()`, `page_settings()` |
+| Login screen        | `page_login_form()`, `page_login_loading()`        |
+| Loader screen       | `page_loader()` in `src/ui.cpp`                    |
+| Background and waves| `draw_background()`, `draw_waves()` in `src/ui.cpp`|
 | Fonts and sizes     | `load_fonts()` in `src/ui.cpp`                     |
 | Executable icon     | `src/Resources/app.ico`                            |
 | Version resource    | `src/Resources/version.rc`                         |
@@ -84,7 +86,8 @@ the build commands in `.github/workflows/build-release.yml`.
 
 ## What it does not do
 
-- No login, registration, session, or saved credentials
+- No real authentication, session validation, or saved credentials. Login is a
+  local UI flow: any non-empty username and password reaches the loader screen.
 - No HTTP, WinHTTP, sockets, or remote API calls
 - No hardware IDs, MAC addresses, disk serials, or machine fingerprints
 - No process enumeration, injection, memory access, or game interaction

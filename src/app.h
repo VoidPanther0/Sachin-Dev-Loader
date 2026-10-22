@@ -20,9 +20,9 @@ inline ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
 
 namespace app {
 
-constexpr float kWidth = 1120.0f;
-constexpr float kHeight = 700.0f;
-constexpr wchar_t kTitle[] = L"Sachin Dev Loader";
+constexpr float kWidth = 1024.0f;
+constexpr float kHeight = 720.0f;
+constexpr wchar_t kTitle[] = L"Sachin Loader";
 constexpr char kVersion[] = "2.1.0";
 
 void Init();
