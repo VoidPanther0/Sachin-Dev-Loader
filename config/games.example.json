@@ -1,0 +1,20 @@
+{
+  "games": [
+    {
+      "id": "g_example0001",
+      "name": "My Game",
+      "exe_path": "C:\\Games\\MyGame\\MyGame.exe",
+      "icon_path": "",
+      "version": "1.0.0",
+      "favorite": true,
+      "last_played_ms": 0,
+      "config": {
+        "launch_arguments": "-windowed",
+        "working_directory": "",
+        "notes": "Example entry - this file is a reference only and is not loaded by the app.",
+        "use_accent_override": false,
+        "accent_override": [0.49, 0.30, 1.0]
+      }
+    }
+  ]
+}

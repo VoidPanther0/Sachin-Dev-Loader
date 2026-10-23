@@ -19,6 +19,15 @@
     <Filter Include="ImGui\Backends">
       <UniqueIdentifier>{C2D8E4B6-1F3A-4C7D-9E5B-8A6F2D1C3B40}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core">
+      <UniqueIdentifier>{D1A2B3C4-5E6F-4789-A1B2-C3D4E5F60710}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="UI">
+      <UniqueIdentifier>{D1A2B3C4-5E6F-4789-A1B2-C3D4E5F60711}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Screens">
+      <UniqueIdentifier>{D1A2B3C4-5E6F-4789-A1B2-C3D4E5F60712}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -45,6 +54,32 @@
     <ClCompile Include="src\gui\backends\imgui_impl_win32.cpp">
       <Filter>ImGui\Backends</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\json.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\paths.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\logs.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\settings.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\games.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\sha256.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\auth.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\dllmgr.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\launcher.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\dialogs.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\theme.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\ui\palette.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui\widgets.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui\fonts.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui\branding.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui\state.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\screens\splash.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\login.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\dashboard.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\library.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\dllmanagement.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\gameconfig.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\logs_screen.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\thememanager_screen.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\settings_screen.cpp"><Filter>Screens</Filter></ClCompile>
+    <ClCompile Include="src\screens\about.cpp"><Filter>Screens</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\app.h">
@@ -77,6 +112,26 @@
     <ClInclude Include="src\gui\backends\imgui_impl_win32.h">
       <Filter>ImGui\Backends</Filter>
     </ClInclude>
+    <ClInclude Include="src\core\json.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\paths.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\clock.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\logs.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\settings.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\games.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\sha256.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\auth.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\dllmgr.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\launcher.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\dialogs.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\theme.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\ui\colorutil.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\palette.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\widgets.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\fonts.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\branding.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\state.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\layout.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui\screens.h"><Filter>UI</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Resources\version.rc">
