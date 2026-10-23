@@ -156,7 +156,7 @@ json::Value theme_to_json(const Theme& t)
 	return root;
 }
 
-bool theme_from_json(const json::Value& root, Theme& out, std::string* error)
+bool theme_from_json(const json::Value& root, Theme& out, std::string* error = nullptr)
 {
 	const std::string name = root.get("name").as_string();
 	if (name.empty())

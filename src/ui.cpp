@@ -64,7 +64,7 @@ static const std::vector<NavItem>& nav_items()
 	return items;
 }
 
-void draw_sidebar(float w, float h)
+void draw_sidebar(float h)
 {
 	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
 	const Rect bar = rect(0.0f, layout::kTopbarHeight, sidebar_w, h);
@@ -307,7 +307,7 @@ void app::Render()
 	else
 	{
 		ui::draw_background(w, h, true);
-		ui::draw_sidebar(w, h);
+		ui::draw_sidebar(h);
 		ui::dispatch_main_screen();
 		ui::draw_topbar(w);
 	}
