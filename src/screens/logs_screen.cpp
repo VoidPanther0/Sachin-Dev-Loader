@@ -57,7 +57,7 @@ void page_logs()
 {
 	const float w = app::ViewportWidth();
 	const float h = app::ViewportHeight();
-	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
+	const float sidebar_w = layout::kSidebarWidth;
 	const Rect area = rect(sidebar_w + layout::kPad, layout::kTopbarHeight + layout::kPad, w - layout::kPad, h - layout::kPad);
 
 	text(F.brand_small, 22.0f, ImVec2(area.min.x, area.min.y), P.text, "Logs");
@@ -113,15 +113,24 @@ void page_logs()
 	const Rect scroll_rect = inset(list_rect, 14.0f);
 	begin_scroll("##log_scroll", scroll_rect);
 	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	constexpr float kRowH = 42.0f;
 	float y = origin.y;
 	for (const logs::Entry* entry : filtered)
 	{
+		const Rect row = rect(origin.x, y, origin.x + width(scroll_rect), y + kRowH - 6.0f);
+		const ImU32 tone = level_dot(entry->level);
+
+		icon_tile(rect(row.min.x, row.min.y + 3.0f, row.min.x + 30.0f, row.min.y + 33.0f),
+			[](ImVec2 c, float s, ImU32 color) { icon_info(c, s, color); }, tone, 8.0f);
+
 		const std::string stamp = logs::format_timestamp(entry->timestamp_ms);
-		ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(origin.x + 6.0f, y + 8.0f), 3.0f, level_dot(entry->level));
-		text(F.tiny, 11.0f, ImVec2(origin.x + 18.0f, y), P.text_dim, stamp.c_str());
-		text(F.small_font, 12.0f, ImVec2(origin.x + 150.0f, y), P.text_secondary,
-			elide(F.small_font, 12.0f, entry->text, width(scroll_rect) - 170.0f).c_str());
-		y += 24.0f;
+		const float stamp_w = text_width(F.tiny, 10.0f, stamp.c_str());
+		text(F.small_font, 12.0f, ImVec2(row.min.x + 42.0f, row.min.y + 2.0f), P.text,
+			elide(F.small_font, 12.0f, entry->text, width(row) - 70.0f - stamp_w).c_str());
+		text(F.tiny, 10.0f, ImVec2(row.max.x - stamp_w, row.min.y + 2.0f), P.text_dim, stamp.c_str());
+		text(F.tiny, 10.0f, ImVec2(row.min.x + 42.0f, row.min.y + 19.0f), P.text_dim, logs::level_name(entry->level));
+
+		y += kRowH;
 	}
 	ImGui::Dummy(ImVec2(1.0f, y - origin.y + 8.0f));
 	if (g_auto_scroll)

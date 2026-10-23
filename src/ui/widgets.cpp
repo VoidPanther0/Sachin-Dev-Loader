@@ -755,6 +755,42 @@ void progress_bar(const Rect& r, float progress01, ImU32 left, ImU32 right)
 	}
 }
 
+ImU32 accent_for(const std::string& seed)
+{
+	static const ImU32 kPalette[6] = {
+		IM_COL32(124, 77, 255, 255),  // violet
+		IM_COL32(59, 130, 246, 255),  // blue
+		IM_COL32(34, 197, 148, 255),  // teal
+		IM_COL32(236, 72, 153, 255),  // pink
+		IM_COL32(245, 158, 11, 255),  // amber
+		IM_COL32(16, 185, 129, 255),  // emerald
+	};
+
+	unsigned int hash = 2166136261u;
+	for (char c : seed)
+	{
+		hash ^= static_cast<unsigned char>(c);
+		hash *= 16777619u;
+	}
+	return kPalette[hash % 6];
+}
+
+void icon_tile(const Rect& r, const IconDrawer& icon, ImU32 color, float rounding)
+{
+	box(r, alpha(color, 0.20f), rounding < 0.0f ? width(r) * 0.32f : rounding, alpha(color, 0.35f), 1.0f);
+	if (icon)
+		icon(center(r), std::min(width(r), height(r)) * 0.52f, color);
+}
+
+void stat_tile(const Rect& r, const IconDrawer& icon, ImU32 color, const char* value, const char* label)
+{
+	panel(r, 12.0f);
+	const Rect chip = rect(r.min.x + 14.0f, r.min.y + 14.0f, r.min.x + 42.0f, r.min.y + 42.0f);
+	icon_tile(chip, icon, color, 9.0f);
+	text(F.brand_small, 20.0f, ImVec2(r.min.x + 14.0f, r.min.y + 50.0f), P.text, value);
+	text(F.micro, 10.0f, ImVec2(r.min.x + 14.0f, r.min.y + 76.0f), P.text_dim, label);
+}
+
 int tabs(const char* id, const Rect& r, const char* const* labels, int count, int selected)
 {
 	if (count <= 0)

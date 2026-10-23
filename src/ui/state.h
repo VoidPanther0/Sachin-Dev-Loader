@@ -43,7 +43,6 @@ struct AppState
 
 	std::string session_user;
 
-	bool sidebar_collapsed = false;
 	std::string selected_game_id;
 };
 

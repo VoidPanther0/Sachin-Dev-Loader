@@ -16,7 +16,7 @@ void page_about()
 {
 	const float w = app::ViewportWidth();
 	const float h = app::ViewportHeight();
-	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
+	const float sidebar_w = layout::kSidebarWidth;
 	const Rect area = rect(sidebar_w + layout::kPad, layout::kTopbarHeight + layout::kPad, w - layout::kPad, h - layout::kPad);
 
 	text(F.brand_small, 22.0f, ImVec2(area.min.x, area.min.y), P.text, "About");

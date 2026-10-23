@@ -2,8 +2,8 @@
 
 namespace ui::layout {
 
-constexpr float kSidebarWidthExpanded = 232.0f;
-constexpr float kSidebarWidthCollapsed = 76.0f;
+// Fixed icon-only sidebar rail - no expand/collapse, label shown as a tooltip.
+constexpr float kSidebarWidth = 76.0f;
 constexpr float kTopbarHeight = 68.0f;
 constexpr float kPad = 26.0f;
 

@@ -58,6 +58,10 @@ void page_login()
 
 	draw_background(w, h, false);
 
+	const Rect card = rect(cx - 312.0f, h * 0.5f - 270.0f, cx + 312.0f, h * 0.5f + 210.0f);
+	soft_glow(center(card), width(card) * 0.55f, P.accent, 0.012f, 24);
+	panel(card, 18.0f);
+
 	if (S.authenticating)
 	{
 		soft_glow(ImVec2(cx, h * 0.30f), 320.0f, P.accent, 0.012f, 26);

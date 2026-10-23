@@ -212,20 +212,23 @@ void draw_card(const Rect& r, games::GameEntry& entry)
 	const bool valid = games::path_is_valid(entry);
 	panel(r, 12.0f);
 
-	if (entry.config.use_accent_override)
-	{
-		const ImU32 card_accent = ImGui::ColorConvertFloat4ToU32(
-			ImVec4(entry.config.accent_override[0], entry.config.accent_override[1], entry.config.accent_override[2], 1.0f));
-		box(rect(r.min.x, r.min.y, r.min.x + 4.0f, r.max.y), card_accent, 0.0f);
-	}
+	const ImU32 card_accent = entry.config.use_accent_override
+		? ImGui::ColorConvertFloat4ToU32(ImVec4(entry.config.accent_override[0], entry.config.accent_override[1], entry.config.accent_override[2], 1.0f))
+		: accent_for(entry.id);
 
-	text(F.body, 15.0f, ImVec2(r.min.x + 16.0f, r.min.y + 12.0f), P.text, elide(F.body, 15.0f, entry.name, width(r) - 110.0f).c_str());
-	text(F.tiny, 11.0f, ImVec2(r.min.x + 16.0f, r.min.y + 34.0f), P.text_dim, elide(F.tiny, 11.0f, entry.exe_path, width(r) - 32.0f).c_str());
+	icon_tile(rect(r.min.x + 14.0f, r.min.y + 12.0f, r.min.x + 46.0f, r.min.y + 44.0f),
+		[](ImVec2 c, float s, ImU32 color) { icon_chip(c, s, color); }, card_accent, 9.0f);
+
+	text(F.body, 15.0f, ImVec2(r.min.x + 58.0f, r.min.y + 12.0f), P.text, elide(F.body, 15.0f, entry.name, width(r) - 150.0f).c_str());
+	text(F.tiny, 11.0f, ImVec2(r.min.x + 58.0f, r.min.y + 32.0f), P.text_dim, elide(F.tiny, 11.0f, entry.exe_path, width(r) - 170.0f).c_str());
 
 	if (!valid)
 		badge(rect(r.min.x + 16.0f, r.min.y + 54.0f, r.min.x + 90.0f, r.min.y + 74.0f), "MISSING", P.danger);
-	else if (!entry.version.empty())
-		badge(rect(r.min.x + 16.0f, r.min.y + 54.0f, r.min.x + 16.0f + text_width(F.micro, 10.0f, entry.version.c_str()) + 20.0f, r.min.y + 74.0f),
+	else
+		badge(rect(r.min.x + 16.0f, r.min.y + 54.0f, r.min.x + 90.0f, r.min.y + 74.0f), "AVAILABLE", P.success);
+
+	if (!entry.version.empty())
+		badge(rect(r.min.x + 98.0f, r.min.y + 54.0f, r.min.x + 98.0f + text_width(F.micro, 10.0f, entry.version.c_str()) + 20.0f, r.min.y + 74.0f),
 			entry.version.c_str(), P.info);
 
 	const Rect fav_rect = rect(r.max.x - 32.0f, r.min.y + 10.0f, r.max.x - 10.0f, r.min.y + 32.0f);
@@ -279,7 +282,7 @@ void page_library()
 {
 	const float w = app::ViewportWidth();
 	const float h = app::ViewportHeight();
-	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
+	const float sidebar_w = layout::kSidebarWidth;
 	const Rect area = rect(sidebar_w + layout::kPad, layout::kTopbarHeight + layout::kPad, w - layout::kPad, h - layout::kPad);
 
 	text(F.brand_small, 22.0f, ImVec2(area.min.x, area.min.y), P.text, "Games Library");

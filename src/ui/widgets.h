@@ -88,6 +88,17 @@ void status_row(const Rect& card, float y, const char* label, const char* value,
 void badge(const Rect& r, const char* label, ImU32 color);
 void progress_bar(const Rect& r, float progress01, ImU32 left, ImU32 right);
 
+// A deterministic, pleasant accent picked from a small fixed palette by
+// hashing `seed` (e.g. a game id) - gives each card/tile its own identity
+// without needing per-entry color configuration.
+ImU32 accent_for(const std::string& seed);
+
+// Rounded, filled color chip with an icon centered in it (app/stat icons).
+void icon_tile(const Rect& r, const IconDrawer& icon, ImU32 color, float rounding = -1.0f);
+
+// A labeled number with an icon chip, e.g. "GAMES  12".
+void stat_tile(const Rect& r, const IconDrawer& icon, ImU32 color, const char* value, const char* label);
+
 // Returns the selected tab index (unchanged if nothing was clicked this frame).
 int tabs(const char* id, const Rect& r, const char* const* labels, int count, int selected);
 

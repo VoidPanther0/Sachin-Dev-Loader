@@ -66,18 +66,16 @@ static const std::vector<NavItem>& nav_items()
 
 void draw_sidebar(float h)
 {
-	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
+	const float sidebar_w = layout::kSidebarWidth;
 	const Rect bar = rect(0.0f, layout::kTopbarHeight, sidebar_w, h);
 	box(bar, P.panel, 0.0f);
 	ImGui::GetWindowDrawList()->AddLine(ImVec2(bar.max.x, bar.min.y), ImVec2(bar.max.x, bar.max.y), P.border_soft);
 
-	float y = bar.min.y + 18.0f;
+	float y = bar.min.y + 22.0f;
 	for (const NavItem& item : nav_items())
 	{
 		const bool active = nav_highlight() == item.screen;
-		const Rect row = S.sidebar_collapsed
-			? rect(bar.min.x + 10.0f, y, bar.max.x - 10.0f, y + 44.0f)
-			: rect(bar.min.x + 14.0f, y, bar.max.x - 14.0f, y + 44.0f);
+		const Rect row = rect(bar.min.x + 13.0f, y, bar.max.x - 13.0f, y + 50.0f);
 
 		ImGui::PushID(item.label);
 		ImGui::SetCursorScreenPos(row.min);
@@ -87,26 +85,45 @@ void draw_sidebar(float h)
 		const float t = animate("##navanim", hovered ? 1.0f : 0.0f, 14.0f);
 
 		if (active)
-			box(row, colorutil::alpha(P.accent, 0.16f), 10.0f, colorutil::alpha(P.accent, 0.4f), 1.0f);
+			box(row, colorutil::alpha(P.accent, 0.20f), 12.0f, colorutil::alpha(P.accent, 0.5f), 1.0f);
 		else if (t > 0.01f)
-			box(row, colorutil::alpha(P.text, 0.04f * t), 10.0f);
+			box(row, colorutil::alpha(P.text, 0.05f * t), 12.0f);
 
-		const ImVec2 icon_c(row.min.x + 22.0f, center(row).y);
-		item.icon(icon_c, 18.0f, active ? P.accent : colorutil::mix(P.text_secondary, P.text, t));
+		item.icon(center(row), 19.0f, active ? P.accent : colorutil::mix(P.text_secondary, P.text, t));
 
-		if (!S.sidebar_collapsed)
-			text(F.link, 13.0f, ImVec2(row.min.x + 44.0f, center(row).y - 7.0f), active ? P.text : colorutil::mix(P.text_secondary, P.text, t), item.label);
+		if (hovered)
+		{
+			ImGui::SetNextWindowPos(ImVec2(row.max.x + 10.0f, row.min.y - 2.0f));
+			ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGui::ColorConvertU32ToFloat4(P.panel));
+			ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(P.border_strong));
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(P.text));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+			ImGui::PushFont(F.link);
+			if (ImGui::BeginTooltip())
+			{
+				ImGui::TextUnformatted(item.label);
+				ImGui::EndTooltip();
+			}
+			ImGui::PopFont();
+			ImGui::PopStyleVar(3);
+			ImGui::PopStyleColor(3);
+		}
 
 		if (clicked)
 			Navigate(item.screen);
 
 		ImGui::PopID();
-		y += 50.0f;
+		y += 58.0f;
 	}
 
-	const Rect collapse_rect = rect(bar.min.x + 14.0f, bar.max.y - 56.0f, bar.max.x - 14.0f, bar.max.y - 16.0f);
-	if (icon_button("##sidebar_collapse", collapse_rect, [](ImVec2 c, float s, ImU32 color) { icon_arrow(c, s, color); }))
-		S.sidebar_collapsed = !S.sidebar_collapsed;
+	const float status_cx = bar.min.x + sidebar_w * 0.5f;
+	const float dot_y = bar.max.y - 46.0f;
+	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(status_cx, dot_y), 3.5f, P.success);
+	char version_label[16];
+	std::snprintf(version_label, sizeof(version_label), "v%s", app::kVersion);
+	text_center_x(F.micro, 9.0f, status_cx, dot_y + 12.0f, P.text_dim, version_label);
 }
 
 void draw_topbar(float w)
@@ -309,8 +326,11 @@ void app::Render()
 		ui::draw_background(w, h, true);
 		ui::draw_sidebar(h);
 		ui::dispatch_main_screen();
-		ui::draw_topbar(w);
 	}
+
+	// Window drag/minimize/close must always be reachable, even on the
+	// splash/login screens where there is no sidebar yet.
+	ui::draw_topbar(w);
 
 	ui::render_toasts();
 

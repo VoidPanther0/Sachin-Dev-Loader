@@ -45,12 +45,10 @@ void draw_game_card(const Rect& r, games::GameEntry& entry)
 
 	const ImU32 card_accent = entry.config.use_accent_override
 		? ImGui::ColorConvertFloat4ToU32(ImVec4(entry.config.accent_override[0], entry.config.accent_override[1], entry.config.accent_override[2], 1.0f))
-		: P.accent;
+		: accent_for(entry.id);
 
-	const ImVec2 icon_c(r.min.x + 32.0f, r.min.y + 32.0f);
-	ImGui::GetWindowDrawList()->AddCircleFilled(icon_c, 18.0f, colorutil::alpha(card_accent, 0.20f), 24);
-	char initial[2] = { entry.name.empty() ? '?' : entry.name[0], '\0' };
-	text_center(F.brand_small, 16.0f, rect(icon_c.x - 18.0f, icon_c.y - 18.0f, icon_c.x + 18.0f, icon_c.y + 18.0f), card_accent, initial);
+	icon_tile(rect(r.min.x + 14.0f, r.min.y + 14.0f, r.min.x + 50.0f, r.min.y + 50.0f),
+		[](ImVec2 c, float s, ImU32 color) { icon_chip(c, s, color); }, card_accent, 10.0f);
 
 	text(F.body, 15.0f, ImVec2(r.min.x + 60.0f, r.min.y + 14.0f), P.text, elide(F.body, 15.0f, entry.name, width(r) - 110.0f).c_str());
 	text(F.tiny, 11.0f, ImVec2(r.min.x + 60.0f, r.min.y + 36.0f), P.text_dim,
@@ -96,7 +94,7 @@ void page_dashboard()
 {
 	const float w = app::ViewportWidth();
 	const float h = app::ViewportHeight();
-	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
+	const float sidebar_w = layout::kSidebarWidth;
 	const float x0 = sidebar_w + layout::kPad;
 	const float y0 = layout::kTopbarHeight + layout::kPad;
 	const float right_col_w = 300.0f;
@@ -116,23 +114,24 @@ void page_dashboard()
 
 	float stat_y = left_col.min.y + 58.0f;
 	const float stat_w = (width(left_col) - 24.0f) / 3.0f;
-	struct Stat { const char* label; std::string value; };
+	const float stat_h = 96.0f;
 	char total_buf[16]; std::snprintf(total_buf, sizeof(total_buf), "%zu", total);
 	char fav_buf[16]; std::snprintf(fav_buf, sizeof(fav_buf), "%zu", favorites);
+	char version_buf[16]; std::snprintf(version_buf, sizeof(version_buf), "v%s", app::kVersion);
+
+	struct Stat { IconDrawer icon; ImU32 color; const char* value; const char* label; };
 	const Stat stats[3] = {
-		{ "GAMES", total_buf },
-		{ "FAVORITES", fav_buf },
-		{ "VERSION", app::kVersion },
+		{ [](ImVec2 c, float s, ImU32 color) { icon_grid(c, s, color); }, P.accent, total_buf, "GAMES" },
+		{ [](ImVec2 c, float s, ImU32 color) { icon_star(c, s, color, true); }, P.warning, fav_buf, "FAVORITES" },
+		{ [](ImVec2 c, float s, ImU32 color) { icon_info(c, s, color); }, P.info, version_buf, "VERSION" },
 	};
 	for (int i = 0; i < 3; ++i)
 	{
-		const Rect card = rect(left_col.min.x + (stat_w + 12.0f) * i, stat_y, left_col.min.x + (stat_w + 12.0f) * i + stat_w, stat_y + 64.0f);
-		panel(card, 10.0f);
-		text(F.micro, 10.0f, ImVec2(card.min.x + 14.0f, card.min.y + 12.0f), P.text_dim, stats[i].label);
-		text(F.brand_small, 20.0f, ImVec2(card.min.x + 14.0f, card.min.y + 30.0f), P.text, stats[i].value.c_str());
+		const Rect card = rect(left_col.min.x + (stat_w + 12.0f) * i, stat_y, left_col.min.x + (stat_w + 12.0f) * i + stat_w, stat_y + stat_h);
+		stat_tile(card, stats[i].icon, stats[i].color, stats[i].value, stats[i].label);
 	}
 
-	float toolbar_y = stat_y + 84.0f;
+	float toolbar_y = stat_y + stat_h + 20.0f;
 	const Rect search_rect = rect(left_col.min.x, toolbar_y, left_col.min.x + 240.0f, toolbar_y + 44.0f);
 	draw_field("##search", "Search your games", search_rect, g_search, sizeof(g_search), false, nullptr,
 		[](ImVec2 c, float s, ImU32 color) { icon_search(c, s, color); });

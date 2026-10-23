@@ -38,7 +38,7 @@ void page_game_config()
 {
 	const float w = app::ViewportWidth();
 	const float h = app::ViewportHeight();
-	const float sidebar_w = S.sidebar_collapsed ? layout::kSidebarWidthCollapsed : layout::kSidebarWidthExpanded;
+	const float sidebar_w = layout::kSidebarWidth;
 	const Rect area = rect(sidebar_w + layout::kPad, layout::kTopbarHeight + layout::kPad, w - layout::kPad, h - layout::kPad);
 
 	games::GameEntry* entry = S.selected_game_id.empty() ? nullptr : games::Library::instance().find(S.selected_game_id);
