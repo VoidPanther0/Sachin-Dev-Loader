@@ -901,14 +901,13 @@ void status_row(const Rect& card, float y, const char* label, const char* value,
 {
 	text(font.micro, 10.0f, ImVec2(card.min.x + 24.0f, y), kDim, label);
 
-	float right = card.max.x - 24.0f;
-	if (dot != 0)
-	{
-		ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(right - text_width(font.small_font, 13.0f, value) - 12.0f, y + 6.5f), 3.0f, dot);
-		right -= 10.0f;
-	}
+	const float value_w = text_width(font.small_font, 13.0f, value);
+	const float text_x = card.max.x - 24.0f - value_w;
 
-	text(font.small_font, 13.0f, ImVec2(right - text_width(font.small_font, 13.0f, value), y - 1.0f), kText, value);
+	if (dot != 0)
+		ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(text_x - 10.0f, y + 6.5f), 3.0f, dot);
+
+	text(font.small_font, 13.0f, ImVec2(text_x, y - 1.0f), kText, value);
 }
 
 // ----------------------------------------------------------------- screens ----
@@ -1036,8 +1035,7 @@ void page_login_loading()
 	spinner(ImVec2(group_x + 11.0f, 320.0f), 10.0f, 2.6f, rgba(176, 124, 255));
 	text(font.body, 15.0f, ImVec2(group_x + 34.0f, 311.0f), rgba(190, 198, 225), auth_label);
 
-	ImGui::GetWindowDrawList()->AddCircle(ImVec2(cx - 86.0f, 352.0f), 6.0f, rgba(110, 124, 160), 24, 1.4f);
-	text(font.link, 14.0f, ImVec2(cx - 72.0f, 344.0f), kMuted, "This might take a moment");
+	text_center_x(font.link, 14.0f, cx, 344.0f, kMuted, "This might take a moment");
 
 	const Rect login = rect(cx - 190.0f, 410.0f, cx + 190.0f, 464.0f);
 	primary_button("##login_busy", login, "Login", false, true);
