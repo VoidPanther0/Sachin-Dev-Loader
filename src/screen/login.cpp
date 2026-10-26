@@ -72,6 +72,7 @@ struct LoginState
 	bool focus_username = true;
 	bool focus_password = false;
 	bool restart_failed = false;
+	double update_ready_time = -1.0;
 	std::string update_notice;
 	double update_notice_time = -1.0;
 	std::string message;
@@ -720,11 +721,13 @@ void retry_startup()
 {
 	login.anim = LoadingAnim();
 	login.anim.step_time = ImGui::GetTime();
+	login.restart_failed = false;
+	login.update_ready_time = -1.0;
 	sdauth::StartStartup();
 }
 
-// Update download, then a Restart launcher prompt. There is no way past this
-// panel without updating, so the form opens only on the new build.
+// Update download, then an automatic restart. There is no way past this panel
+// without updating, so the form opens only on the new build.
 void draw_update_panel(bool update_failed, bool installed, int progress)
 {
 	const float w = app::kLoginWidth;
@@ -750,7 +753,7 @@ void draw_update_panel(bool update_failed, bool installed, int progress)
 		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is ready.");
 	}
 	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		installed ? "Restart the launcher to use the new version." : "Downloading now. Please wait.");
+		installed ? "Restarting the launcher..." : "Downloading now. Please wait.");
 
 	const Rect track = rect(fx, 410.0f, fx + fw, 418.0f);
 	box(track, kLoginField, 4.0f);
@@ -777,23 +780,49 @@ void draw_update_panel(bool update_failed, bool installed, int progress)
 	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
 	if (update_failed)
 	{
+		login.update_ready_time = -1.0;
 		if (login_button("##update_retry", button, "Retry update"))
+		{
+			login.restart_failed = false;
+			login.update_ready_time = -1.0;
 			sdauth::StartUpdate();
+		}
 		return;
 	}
 
 	if (!installed)
 	{
+		login.update_ready_time = -1.0;
 		busy_button(button, "Please wait");
 		return;
 	}
 
-	if (login_button("##update_restart", button, "Restart launcher"))
+	// The new exe is in place. Hold the 100% frame for a moment, then start it
+	// automatically so the update needs no extra click.
+	const double now = ImGui::GetTime();
+	if (login.update_ready_time < 0.0)
+		login.update_ready_time = now;
+
+	if (login.restart_failed)
+	{
+		if (login_button("##update_restart", button, "Retry restart"))
+		{
+			login.restart_failed = !sdauth::RestartLoader();
+			if (!login.restart_failed)
+				PostQuitMessage(0);
+		}
+		return;
+	}
+
+	if (now - login.update_ready_time >= 1.25)
 	{
 		login.restart_failed = !sdauth::RestartLoader();
 		if (!login.restart_failed)
 			PostQuitMessage(0);
+		return;
 	}
+
+	busy_button(button, "Restarting...");
 }
 
 void draw_startup()
@@ -804,15 +833,23 @@ void draw_startup()
 	const bool failed = status == sdauth::StatusError;
 	const bool ready = status == sdauth::StatusOk;
 	const std::string update_url = sdauth::StartupDownloadUrl();
-	const int update_status = sdauth::UpdateStatus();
 	const bool show_update = !update_url.empty() &&
 		(failed || sdauth::StartupUpdateAvailable());
-	const bool update_failed = show_update && update_status == sdauth::UpdateFailed;
 
-	// After the user pressed Update: download progress, then Restart launcher.
-	if (show_update && update_status != sdauth::UpdateIdle)
+	// A newer build (or a rejected one) updates without a click: start the
+	// download at once, show progress, then restart into the new exe.
+	if (show_update)
 	{
-		draw_update_panel(update_failed, update_status == sdauth::UpdateReady, sdauth::UpdateProgress());
+		if (sdauth::UpdateStatus() == sdauth::UpdateIdle)
+		{
+			login.restart_failed = false;
+			login.update_ready_time = -1.0;
+			sdauth::StartUpdate();
+		}
+
+		const int current_status = sdauth::UpdateStatus();
+		draw_update_panel(current_status == sdauth::UpdateFailed,
+			current_status == sdauth::UpdateReady, sdauth::UpdateProgress());
 		return;
 	}
 
@@ -826,30 +863,11 @@ void draw_startup()
 	if (caption.empty())
 		caption = failed ? "Startup check failed. Retry." : "Preparing loader...";
 
-	// A newer build is offered in the button slot once the check finished. A
-	// rejected build offers it at once, next to the failed step.
-	const bool offer_update = show_update && (failed || loading_finished(login.anim));
-	if (offer_update && !failed)
-	{
-		const std::string version = sdauth::StartupLatestVersion();
-		caption = version.empty() ? "A newer loader build is ready." : "New version available: " + version;
-	}
-
 	draw_loading(kStartupSteps, count, login.anim, failed_step, caption, failed);
 
 	const float fx = 60.0f;
 	const float fw = app::kLoginWidth - fx * 2.0f;
 	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
-
-	if (offer_update)
-	{
-		if (login_button("##startup_update", button, "Update"))
-		{
-			login.restart_failed = false;
-			sdauth::StartUpdate();
-		}
-		return;
-	}
 
 	if (failed)
 	{
@@ -860,7 +878,7 @@ void draw_startup()
 
 	busy_button(button, "Loading...");
 
-	if (loading_finished(login.anim) && !show_update)
+	if (loading_finished(login.anim))
 	{
 		login.phase = Phase::Form;
 		login.anim = LoadingAnim();

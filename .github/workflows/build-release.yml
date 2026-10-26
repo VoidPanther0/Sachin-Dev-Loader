@@ -17,6 +17,8 @@ jobs:
     env:
       WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
       WINDOWS_CERT_PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
     steps:
       - name: Checkout
@@ -24,6 +26,23 @@ jobs:
 
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Verify tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $expected = $env:RELEASE_TAG.TrimStart("v")
+          $header = Get-Content "src/app.h" -Raw
+          if ($header -notmatch 'kVersion\[\]\s*=\s*"([^"]+)"') {
+            throw "app::kVersion was not found in src/app.h."
+          }
+          $actual = $Matches[1]
+          if ($actual -ne $expected) {
+            throw "src/app.h says version $actual but the tag is $($env:RELEASE_TAG). Bump the version before tagging."
+          }
+          "Version $actual matches $($env:RELEASE_TAG)." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Build Release x64
         run: msbuild ImGuiTemplate.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
@@ -97,3 +116,40 @@ jobs:
             dist/ImGuiTemplate.exe
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      - name: Publish update to Supabase
+        if: startsWith(github.ref, 'refs/tags/v') && env.SUPABASE_URL != '' && env.SUPABASE_SERVICE_ROLE_KEY != ''
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:RELEASE_TAG.TrimStart("v")
+          $sha = (Get-FileHash "dist/ImGuiTemplate.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $release = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG"
+          $download = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/ImGuiTemplate.exe"
+
+          $body = @{
+            latest_version = $version
+            update_url = $download
+            update_sha256 = $sha
+            release_url = $release
+          } | ConvertTo-Json -Compress
+
+          $headers = @{
+            apikey = $env:SUPABASE_SERVICE_ROLE_KEY
+            Authorization = "Bearer $($env:SUPABASE_SERVICE_ROLE_KEY)"
+            Prefer = "return=minimal"
+          }
+
+          $uri = "$($env:SUPABASE_URL.TrimEnd('/'))/rest/v1/loader_config?id=eq.1"
+          Invoke-RestMethod -Method Patch -Uri $uri -Headers $headers `
+            -ContentType "application/json" -Body $body | Out-Null
+
+          "Published $version to Supabase ($sha)." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Warn when Supabase publish secrets are missing
+        if: startsWith(github.ref, 'refs/tags/v') && (env.SUPABASE_URL == '' || env.SUPABASE_SERVICE_ROLE_KEY == '')
+        shell: pwsh
+        run: |
+          "::warning::SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set. The release was built, but clients will not see the update until loader_config is updated."

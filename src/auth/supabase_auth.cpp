@@ -34,7 +34,7 @@ namespace {
 const wchar_t* kBaseUrl = L"https://xdtidxtkvrmurzogkxuv.supabase.co";
 const wchar_t* kAuthFunctionPath = L"/functions/v1/loader-auth";
 const char* kPublishableKey = "sb_publishable_xoEwnFlQuy-LLO5h8CRW_w_lS_uiEYr";
-const char* kUserAgent = "SachinDevLoader/0.2";
+const char* kUserAgent = "SachinDevLoader/0.3";
 
 const int kHeartbeatSeconds = 300;
 const std::size_t kMaxResponseBytes = 256 * 1024;

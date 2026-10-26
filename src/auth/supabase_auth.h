@@ -87,12 +87,11 @@ std::string StartupSha256();
 std::string StartupLatestVersion();
 
 // True when latest_version is newer than this executable and the server sent a
-// download URL with a SHA-256. The startup screen then shows an Update button.
+// download URL with a SHA-256. The startup screen then updates without a click.
 bool StartupUpdateAvailable();
 
-// Downloads the update, verifies its SHA-256 and swaps it in place of the
-// running exe (the old one becomes <exe>.old). Safe to call again after a
-// failure.
+// Downloads the update, verifies its SHA-256, swaps it in place of the running
+// exe (the old one becomes <exe>.old) and restarts automatically.
 void StartUpdate();
 
 // Starts the swapped exe after UpdateReady. The caller then quits.
