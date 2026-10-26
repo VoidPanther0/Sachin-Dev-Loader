@@ -112,11 +112,13 @@ ship. Never put the `service_role` key in the application.
 ## Automatic updates
 
 Every launch calls the startup check before the login form. When the server
-reports a newer `latest_version`, the loader downloads the exe from `update_url`
-without a button press, verifies `update_sha256`, then starts a small
-`--apply-update` helper. The helper waits for the loader to close, replaces the
-old exe and starts the new one. The user sees download progress and a restart
-message, not a browser page.
+reports a newer `latest_version`, the startup screen finishes its checks (about
+6 seconds) and shows an Update button. Update downloads the exe from
+`update_url`, verifies `update_sha256`, then starts a small `--apply-update`
+helper. The loader shows `Restarting...` and closes by itself. The helper waits for the loader to close, replaces the
+old exe and starts the new one with `--updated`. The first screen then shows
+`Updated to v<version>` for a few seconds. The user sees download progress and a
+restart message, not a browser page.
 
 To publish an update:
 

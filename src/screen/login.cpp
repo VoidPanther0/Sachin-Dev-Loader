@@ -36,7 +36,7 @@ constexpr int kLogoSize = 120;
 enum class Phase { Startup, Form, Signing };
 
 // Visual pacing for a loading screen. The worker reports the real stage; each
-// step stays on screen for at least kStepSeconds so the user can read it.
+// step stays on screen for at least its step time so the user can read it.
 struct LoadingAnim
 {
 	int shown = 0;           // index of the active step; == count when all done
@@ -46,7 +46,12 @@ struct LoadingAnim
 };
 
 constexpr double kStepSeconds = 0.55;
+// The startup check is paced slower so the whole screen takes about 6 seconds.
+constexpr double kStartupStepSeconds = 1.8;
 constexpr double kDoneHoldSeconds = 0.35;
+// "Restarting..." stays visible this long before the loader closes for the
+// update helper.
+constexpr double kRestartHoldSeconds = 1.5;
 
 const char* const kStartupSteps[] = {
 	"Connecting to server...",
@@ -70,7 +75,9 @@ struct LoginState
 	bool focus_username = true;
 	bool focus_password = false;
 	bool skip_update = false;
-	std::string auto_update_url;
+	double restart_time = -1.0;
+	std::string update_notice;
+	double update_notice_time = -1.0;
 	std::string message;
 	bool message_is_error = false;
 	Phase phase = Phase::Startup;
@@ -489,6 +496,38 @@ void finish_login()
 	ResizeWindow(static_cast<int>(app::kWidth), static_cast<int>(app::kHeight));
 }
 
+// One-line confirmation after the update helper restarted this build. It fades
+// out on its own so it never covers the form. The hold starts on the form, so
+// the startup check cannot use up the visible time.
+void draw_update_notice(bool start_timer)
+{
+	if (login.update_notice.empty())
+		return;
+
+	const double now = ImGui::GetTime();
+	if (start_timer && login.update_notice_time < 0.0)
+		login.update_notice_time = now;
+
+	float alpha = 1.0f;
+	if (login.update_notice_time >= 0.0)
+	{
+		constexpr double kHoldSeconds = 7.0;
+		constexpr double kFadeSeconds = 0.8;
+		const double elapsed = now - login.update_notice_time;
+		if (elapsed >= kHoldSeconds + kFadeSeconds)
+		{
+			login.update_notice.clear();
+			return;
+		}
+		if (elapsed > kHoldSeconds)
+			alpha = static_cast<float>(1.0 - (elapsed - kHoldSeconds) / kFadeSeconds);
+	}
+
+	const float w = text_width(font.body, 16.0f, login.update_notice.c_str());
+	text(font.body, 16.0f, ImVec2(app::kLoginWidth * 0.5f - w * 0.5f, 232.0f),
+		fade(kGreen, alpha), login.update_notice.c_str());
+}
+
 // Card background, window buttons, logo, title and subtitle. Shared by the
 // form and both loading screens.
 void draw_frame()
@@ -539,16 +578,18 @@ void draw_frame()
 	const float footer_w = text_width(font.body, 16.0f, footer);
 	const float footer_y = h - 46.0f < 540.0f ? 540.0f : h - 46.0f;
 	text(font.body, 16.0f, ImVec2(cx - footer_w * 0.5f, footer_y), fade(kLoginSubtitle, 0.85f), footer);
+
+	draw_update_notice(login.phase == Phase::Form);
 }
 
 // ---------------------------------------------------------------- loading ----
 
-// Moves the visible step toward the real one, one step per kStepSeconds.
+// Moves the visible step toward the real one, one step per step_seconds.
 // real_active is the index of the step the worker is on; count means all done.
-void advance_loading(LoadingAnim& anim, int real_active, int count)
+void advance_loading(LoadingAnim& anim, int real_active, int count, double step_seconds = kStepSeconds)
 {
 	const double now = ImGui::GetTime();
-	if (anim.shown < real_active && now - anim.step_time >= kStepSeconds)
+	if (anim.shown < real_active && now - anim.step_time >= step_seconds)
 	{
 		++anim.shown;
 		anim.step_time = now;
@@ -558,7 +599,8 @@ void advance_loading(LoadingAnim& anim, int real_active, int count)
 	float target = static_cast<float>(anim.shown) / static_cast<float>(count);
 	if (anim.shown < count)
 	{
-		const float creep = clampf(static_cast<float>(now - anim.step_time) / 1.6f, 0.0f, 0.8f);
+		const float creep_seconds = step_seconds > 1.6 ? static_cast<float>(step_seconds) : 1.6f;
+		const float creep = clampf(static_cast<float>(now - anim.step_time) / creep_seconds, 0.0f, 0.8f);
 		target += creep / static_cast<float>(count);
 	}
 
@@ -683,7 +725,6 @@ void retry_startup()
 	login.anim = LoadingAnim();
 	login.anim.step_time = ImGui::GetTime();
 	login.skip_update = false;
-	login.auto_update_url.clear();
 	sdauth::StartStartup();
 }
 
@@ -712,7 +753,7 @@ void draw_update_panel(bool startup_ok, bool update_failed, bool restarting, int
 		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is ready.");
 	}
 	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		"Downloading now. It installs and restarts by itself.");
+		restarting ? "Update installed. Restarting the loader..." : "Downloading now. It restarts by itself when done.");
 
 	const Rect track = rect(fx, 410.0f, fx + fw, 418.0f);
 	box(track, kLoginField, 4.0f);
@@ -778,41 +819,58 @@ void draw_startup()
 		(failed || sdauth::StartupUpdateAvailable());
 	const bool update_failed = show_update && update_status == sdauth::UpdateFailed;
 
-	// Start the download automatically as soon as the server offers a newer
-	// build. No button press is needed for a normal update.
-	if (show_update && update_status == sdauth::UpdateIdle && login.auto_update_url != update_url)
-	{
-		login.auto_update_url = update_url;
-		sdauth::StartUpdate();
-	}
-	if (!show_update)
-		login.auto_update_url.clear();
-
-	if (show_update)
+	// After the user pressed Update: download progress, then restart without
+	// another click once the helper is running.
+	if (show_update && update_status != sdauth::UpdateIdle)
 	{
 		draw_update_panel(status == sdauth::StatusOk, update_failed,
 			update_status == sdauth::UpdateRestarting, sdauth::UpdateProgress());
 
 		if (update_status == sdauth::UpdateRestarting)
-			PostQuitMessage(0);
+		{
+			const double now = ImGui::GetTime();
+			if (login.restart_time < 0.0)
+				login.restart_time = now;
+			else if (now - login.restart_time >= kRestartHoldSeconds)
+				PostQuitMessage(0);
+		}
 		return;
 	}
 
 	// StartupConnecting (1) is step 0; StartupDone means every step is done.
 	const int real_active = ready ? count : stage - 1;
 	if (!failed)
-		advance_loading(login.anim, real_active, count);
+		advance_loading(login.anim, real_active, count, kStartupStepSeconds);
 
 	int failed_step = failed ? (login.anim.shown < count ? login.anim.shown : count - 1) : -1;
 	std::string caption = failed ? sdauth::StartupMessage() : std::string("Preparing loader...");
 	if (caption.empty())
 		caption = failed ? "Startup check failed. Retry." : "Preparing loader...";
 
+	// A newer build is offered in the button slot once the check finished. A
+	// rejected build offers it at once, next to the failed step.
+	const bool offer_update = show_update && (failed || loading_finished(login.anim));
+	if (offer_update && !failed)
+	{
+		const std::string version = sdauth::StartupLatestVersion();
+		caption = version.empty() ? "A newer loader build is ready." : "New version available: " + version;
+	}
+
 	draw_loading(kStartupSteps, count, login.anim, failed_step, caption, failed);
 
 	const float fx = 60.0f;
 	const float fw = app::kLoginWidth - fx * 2.0f;
 	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
+
+	if (offer_update)
+	{
+		if (login_button("##startup_update", button, "Update"))
+		{
+			login.restart_time = -1.0;
+			sdauth::StartUpdate();
+		}
+		return;
+	}
 
 	if (failed)
 	{
@@ -823,7 +881,7 @@ void draw_startup()
 
 	busy_button(button, "Loading...");
 
-	if (loading_finished(login.anim))
+	if (loading_finished(login.anim) && !show_update)
 	{
 		login.phase = Phase::Form;
 		login.anim = LoadingAnim();
@@ -921,6 +979,13 @@ void Init()
 {
 	load_logo();
 	load_login_settings();
+
+	if (g_updated)
+	{
+		char notice[64];
+		std::snprintf(notice, sizeof(notice), "Updated to v%s", app::kVersion);
+		login.update_notice = notice;
+	}
 
 	// First loading screen: build check and components before the form.
 	login.phase = Phase::Startup;

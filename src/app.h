@@ -13,6 +13,10 @@
 
 inline HWND g_hwnd = nullptr;
 
+// Set when the update helper starts this build with --updated, so the first
+// screen can confirm the new version.
+inline bool g_updated = false;
+
 inline ID3D11Device* g_pd3dDevice = nullptr;
 inline ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
 inline IDXGISwapChain* g_pSwapChain = nullptr;

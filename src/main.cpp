@@ -79,9 +79,11 @@ void ShowError(const wchar_t* message)
 	MessageBoxW(nullptr, message, app::kTitle, MB_ICONERROR | MB_OK);
 }
 
-bool StartProcess(const std::wstring& file)
+bool StartProcess(const std::wstring& file, const wchar_t* arguments = nullptr)
 {
 	std::wstring command = L"\"" + file + L"\"";
+	if (arguments && arguments[0] != L'\0')
+		command += std::wstring(L" ") + arguments;
 
 	std::wstring directory = file;
 	const std::size_t slash = directory.find_last_of(L"\\/");
@@ -136,7 +138,7 @@ int RunUpdateHelper(const std::wstring& target, DWORD old_pid)
 			Sleep(500);
 	}
 
-	if (copied && StartProcess(target))
+	if (copied && StartProcess(target, L"--updated"))
 	{
 		// The helper runs from %TEMP%. Ask Windows to remove it at the next
 		// reboot; a running executable cannot delete itself right now.
@@ -145,7 +147,7 @@ int RunUpdateHelper(const std::wstring& target, DWORD old_pid)
 	}
 
 	// The old file could not be replaced. Run the downloaded copy instead.
-	if (StartProcess(self))
+	if (StartProcess(self, L"--updated"))
 	{
 		MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
 		return 0;
@@ -222,7 +224,14 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 		return RunUpdateHelper(target, old_pid);
 	}
 	if (arguments)
+	{
+		for (int i = 1; i < argument_count; ++i)
+		{
+			if (std::wstring(arguments[i]) == L"--updated")
+				g_updated = true;
+		}
 		LocalFree(arguments);
+	}
 
 	try
 	{
