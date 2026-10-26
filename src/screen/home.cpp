@@ -61,7 +61,7 @@ void icon_settings(ImVec2 c, ImU32 color)
 	draw->AddCircleFilled(c, 2.2f, color, 12);
 	for (int i = 0; i < 8; ++i)
 	{
-		const float angle = static_cast<float>(i) * (IM_PI * 2.0f / 8.0f);
+		const float angle = static_cast<float>(i) * (6.28318530718f / 8.0f);
 		const ImVec2 from(c.x + std::cos(angle) * 8.0f, c.y + std::sin(angle) * 8.0f);
 		const ImVec2 to(c.x + std::cos(angle) * 10.5f, c.y + std::sin(angle) * 10.5f);
 		draw->AddLine(from, to, color, 1.6f);
