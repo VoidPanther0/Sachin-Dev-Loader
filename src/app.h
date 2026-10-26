@@ -22,6 +22,8 @@ namespace app {
 
 constexpr float kWidth = 1160.0f;
 constexpr float kHeight = 700.0f;
+constexpr float kLoginWidth = 560.0f;
+constexpr float kLoginHeight = 620.0f;
 constexpr wchar_t kTitle[] = L"Dear ImGui Template";
 constexpr char kVersion[] = "1.0.0";
 
@@ -32,3 +34,4 @@ void Shutdown();
 } // namespace app
 
 void StartWindowDrag();
+void ResizeWindow(int width, int height);

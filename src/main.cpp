@@ -93,6 +93,14 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 		if ((wparam & 0xfff0) == SC_KEYMENU)
 			return 0;
 		break;
+	case WM_SIZE:
+		if (g_pd3dDevice && g_pSwapChain && wparam != SIZE_MINIMIZED)
+		{
+			CleanupRenderTarget();
+			g_pSwapChain->ResizeBuffers(0, LOWORD(lparam), HIWORD(lparam), DXGI_FORMAT_UNKNOWN, 0);
+			CreateRenderTarget();
+		}
+		return 0;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		return 0;
@@ -109,6 +117,13 @@ void StartWindowDrag()
 {
 	ReleaseCapture();
 	SendMessageW(g_hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+}
+
+void ResizeWindow(int width, int height)
+{
+	const int x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
+	const int y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
+	SetWindowPos(g_hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, int show_command)
@@ -141,8 +156,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 
 		const int screen_width = GetSystemMetrics(SM_CXSCREEN);
 		const int screen_height = GetSystemMetrics(SM_CYSCREEN);
-		const int width = static_cast<int>(app::kWidth);
-		const int height = static_cast<int>(app::kHeight);
+		const int width = static_cast<int>(app::kLoginWidth);
+		const int height = static_cast<int>(app::kLoginHeight);
 
 		g_hwnd = CreateWindowExW(
 			WS_EX_APPWINDOW,
