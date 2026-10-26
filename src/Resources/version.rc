@@ -2,6 +2,7 @@
 #include "resource.h"
 
 IDI_APPICON ICON "app.ico"
+IDR_LOGO RCDATA "Slogo.png"
 
 1 VERSIONINFO
 FILEVERSION 1,0,0,0

@@ -1,8 +1,15 @@
 #include "app.h"
+#include "resource.h"
+#include "imgui_internal.h"
+
+#include <wincodec.h>
 
 #include <cfloat>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // Single-screen Dear ImGui starter.
@@ -524,6 +531,470 @@ void draw_actions_card()
 	}
 }
 
+// ------------------------------------------------------------------ login ----
+
+const ImVec4 kLoginBg(0.012f, 0.020f, 0.043f, 1.0f);
+const ImVec4 kLoginCard(0.020f, 0.031f, 0.067f, 1.0f);
+const ImVec4 kLoginBorder(0.24f, 0.36f, 0.78f, 0.45f);
+const ImVec4 kLoginField(0.035f, 0.051f, 0.094f, 1.0f);
+const ImVec4 kLoginFieldBorder(0.30f, 0.38f, 0.60f, 0.30f);
+const ImVec4 kLoginIcon(0.62f, 0.68f, 0.82f, 1.0f);
+const ImVec4 kLoginHint(0.52f, 0.58f, 0.72f, 1.0f);
+const ImVec4 kLoginBlue(0.17f, 0.33f, 0.86f, 1.0f);
+const ImVec4 kLoginPurple(0.52f, 0.29f, 0.93f, 1.0f);
+const ImVec4 kLoginSubtitle(0.36f, 0.53f, 0.95f, 1.0f);
+const ImVec4 kLoginLink(0.58f, 0.48f, 0.96f, 1.0f);
+
+constexpr int kLogoSize = 150;
+
+struct LoginState
+{
+	char username[64] = "";
+	char password[64] = "";
+	bool show_password = false;
+	bool remember = false;
+	bool logged_in = false;
+	bool focus_username = true;
+	bool focus_password = false;
+	std::string message;
+	bool message_is_error = false;
+};
+
+LoginState login;
+ID3D11ShaderResourceView* logo_texture = nullptr;
+
+// Decodes the embedded Slogo.png (IDR_LOGO) with WIC, scales it to kLogoSize
+// and uploads it as a Direct3D 11 texture.
+bool load_logo()
+{
+	HMODULE module = GetModuleHandleW(nullptr);
+	HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(IDR_LOGO), RT_RCDATA);
+	if (!resource)
+		return false;
+
+	HGLOBAL handle = LoadResource(module, resource);
+	void* bytes = handle ? LockResource(handle) : nullptr;
+	const DWORD size = SizeofResource(module, resource);
+	if (!bytes || size == 0)
+		return false;
+
+	const bool com_ready = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+
+	IWICImagingFactory* factory = nullptr;
+	IWICStream* stream = nullptr;
+	IWICBitmapDecoder* decoder = nullptr;
+	IWICBitmapFrameDecode* frame = nullptr;
+	IWICFormatConverter* converter = nullptr;
+	IWICBitmapScaler* scaler = nullptr;
+
+	const UINT side = static_cast<UINT>(kLogoSize);
+	std::vector<unsigned char> pixels(static_cast<size_t>(side) * side * 4);
+
+	const bool decoded =
+		SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
+		SUCCEEDED(factory->CreateStream(&stream)) &&
+		SUCCEEDED(stream->InitializeFromMemory(static_cast<BYTE*>(bytes), size)) &&
+		SUCCEEDED(factory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) &&
+		SUCCEEDED(decoder->GetFrame(0, &frame)) &&
+		SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
+		SUCCEEDED(converter->Initialize(frame, GUID_WICPixelFormat32bppPRGBA, WICBitmapDitherTypeNone,
+			nullptr, 0.0, WICBitmapPaletteTypeCustom)) &&
+		SUCCEEDED(factory->CreateBitmapScaler(&scaler)) &&
+		SUCCEEDED(scaler->Initialize(converter, side, side, WICBitmapInterpolationModeFant)) &&
+		SUCCEEDED(scaler->CopyPixels(nullptr, side * 4, static_cast<UINT>(pixels.size()), pixels.data()));
+
+	if (scaler) scaler->Release();
+	if (converter) converter->Release();
+	if (frame) frame->Release();
+	if (decoder) decoder->Release();
+	if (stream) stream->Release();
+	if (factory) factory->Release();
+	if (com_ready)
+		CoUninitialize();
+
+	if (!decoded)
+		return false;
+
+	// Scaled premultiplied so edges stay clean; ImGui blends straight alpha.
+	for (size_t i = 0; i < pixels.size(); i += 4)
+	{
+		const unsigned alpha = pixels[i + 3];
+		if (alpha == 0 || alpha == 255)
+			continue;
+		for (size_t c = 0; c < 3; ++c)
+		{
+			const unsigned value = pixels[i + c] * 255u / alpha;
+			pixels[i + c] = static_cast<unsigned char>(value > 255u ? 255u : value);
+		}
+	}
+
+	D3D11_TEXTURE2D_DESC desc{};
+	desc.Width = side;
+	desc.Height = side;
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+	D3D11_SUBRESOURCE_DATA data{};
+	data.pSysMem = pixels.data();
+	data.SysMemPitch = side * 4;
+
+	ID3D11Texture2D* texture = nullptr;
+	if (!g_pd3dDevice || FAILED(g_pd3dDevice->CreateTexture2D(&desc, &data, &texture)) || !texture)
+		return false;
+
+	const HRESULT result = g_pd3dDevice->CreateShaderResourceView(texture, nullptr, &logo_texture);
+	texture->Release();
+	return SUCCEEDED(result);
+}
+
+void gradient_text(ImFont* f, float size, ImVec2 position, const char* value, const ImVec4& from, const ImVec4& to)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const int start = draw->VtxBuffer.Size;
+	draw->AddText(f, size, position, IM_COL32_WHITE, value);
+	const float w = text_width(f, size, value);
+	ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
+		position, ImVec2(position.x + w, position.y), color_u32(from), color_u32(to));
+}
+
+void gradient_box(const Rect& r, const ImVec4& from, const ImVec4& to, float rounding)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const int start = draw->VtxBuffer.Size;
+	draw->AddRectFilled(r.min, r.max, IM_COL32_WHITE, rounding);
+	ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
+		r.min, ImVec2(r.max.x, r.min.y), color_u32(from), color_u32(to));
+}
+
+void icon_user(ImVec2 c, ImU32 color)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddCircle(ImVec2(c.x, c.y - 5.0f), 5.0f, color, 24, 1.7f);
+	draw->PathArcTo(ImVec2(c.x, c.y + 11.0f), 9.0f, IM_PI, IM_PI * 2.0f, 20);
+	draw->PathStroke(color, ImDrawFlags_Closed, 1.7f);
+}
+
+void icon_lock(ImVec2 c, ImU32 color)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->PathArcTo(ImVec2(c.x, c.y - 4.0f), 5.0f, IM_PI, IM_PI * 2.0f, 16);
+	draw->PathStroke(color, 0, 1.7f);
+	draw->AddLine(ImVec2(c.x - 5.0f, c.y - 4.0f), ImVec2(c.x - 5.0f, c.y), color, 1.7f);
+	draw->AddLine(ImVec2(c.x + 5.0f, c.y - 4.0f), ImVec2(c.x + 5.0f, c.y), color, 1.7f);
+	draw->AddRect(ImVec2(c.x - 8.0f, c.y), ImVec2(c.x + 8.0f, c.y + 11.0f), color, 2.5f, 0, 1.7f);
+}
+
+void icon_eye(ImVec2 c, ImU32 color, bool crossed)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddBezierQuadratic(ImVec2(c.x - 11.0f, c.y), ImVec2(c.x, c.y - 10.0f), ImVec2(c.x + 11.0f, c.y), color, 1.7f);
+	draw->AddBezierQuadratic(ImVec2(c.x - 11.0f, c.y), ImVec2(c.x, c.y + 10.0f), ImVec2(c.x + 11.0f, c.y), color, 1.7f);
+	draw->AddCircle(c, 3.5f, color, 16, 1.7f);
+	if (crossed)
+		draw->AddLine(ImVec2(c.x - 9.0f, c.y + 7.0f), ImVec2(c.x + 9.0f, c.y - 7.0f), color, 1.7f);
+}
+
+enum class FieldIcon { User, Lock };
+
+// Rounded field with a leading icon. Returns true when Enter is pressed.
+bool login_field(const char* id, const Rect& r, char* buffer, size_t size, const char* hint,
+	FieldIcon icon, bool* reveal, bool focus)
+{
+	box(r, kLoginField, 10.0f);
+
+	const float icon_x = r.min.x + 30.0f;
+	const float mid_y = r.min.y + height(r) * 0.5f;
+	const ImU32 icon_color = color_u32(kLoginIcon);
+	if (icon == FieldIcon::User)
+		icon_user(ImVec2(icon_x, mid_y), icon_color);
+	else
+		icon_lock(ImVec2(icon_x, mid_y), icon_color);
+
+	const float font_size = 17.0f;
+	const float input_x = r.min.x + 56.0f;
+	const float input_w = width(r) - 56.0f - (reveal ? 56.0f : 18.0f);
+
+	ImGui::PushFont(font.body, font_size);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, (height(r) - font_size) * 0.5f - 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+	ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+	ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+	ImGui::PushStyleColor(ImGuiCol_TextDisabled, kLoginHint);
+
+	ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue;
+	if (reveal && !*reveal)
+		flags |= ImGuiInputTextFlags_Password;
+
+	if (focus)
+		ImGui::SetKeyboardFocusHere();
+	ImGui::SetCursorScreenPos(ImVec2(input_x, r.min.y));
+	ImGui::SetNextItemWidth(input_w);
+	const bool submitted = ImGui::InputTextWithHint(id, hint, buffer, size, flags);
+	const bool active = ImGui::IsItemActive();
+	const bool hovered = ImGui::IsItemHovered();
+
+	ImGui::PopStyleColor(4);
+	ImGui::PopStyleVar();
+	ImGui::PopFont();
+
+	if (reveal)
+	{
+		const Rect eye = rect(r.max.x - 50.0f, r.min.y + 6.0f, r.max.x - 8.0f, r.max.y - 6.0f);
+		ImGui::SetCursorScreenPos(eye.min);
+		ImGui::PushID(id);
+		if (ImGui::InvisibleButton("##reveal", ImVec2(width(eye), height(eye))))
+			*reveal = !*reveal;
+		const bool eye_hovered = ImGui::IsItemHovered();
+		ImGui::PopID();
+		if (eye_hovered)
+			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+		icon_eye(center(eye), color_u32(eye_hovered ? kText : kLoginIcon), *reveal);
+	}
+
+	const ImVec4 border = active ? fade(kLoginPurple, 0.85f) : (hovered ? fade(kLoginBorder, 0.9f) : kLoginFieldBorder);
+	ImGui::GetWindowDrawList()->AddRect(r.min, r.max, color_u32(border), 10.0f, 0, active ? 1.5f : 1.0f);
+	return submitted;
+}
+
+bool login_checkbox(const char* id, ImVec2 position, const char* value, bool* checked)
+{
+	const float side = 22.0f;
+	const float label_w = text_width(font.body, 16.0f, value);
+
+	ImGui::SetCursorScreenPos(position);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(side + 12.0f + label_w, side));
+	const bool hovered = ImGui::IsItemHovered();
+	if (clicked)
+		*checked = !*checked;
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const Rect r = rect(position.x, position.y, position.x + side, position.y + side);
+	if (*checked)
+	{
+		gradient_box(r, kLoginBlue, kLoginPurple, 5.0f);
+		draw->AddLine(ImVec2(r.min.x + 6.0f, r.min.y + 11.5f), ImVec2(r.min.x + 9.5f, r.min.y + 15.0f), IM_COL32_WHITE, 2.0f);
+		draw->AddLine(ImVec2(r.min.x + 9.5f, r.min.y + 15.0f), ImVec2(r.min.x + 16.5f, r.min.y + 7.5f), IM_COL32_WHITE, 2.0f);
+	}
+	else
+	{
+		box(r, kLoginField, 5.0f);
+		draw->AddRect(r.min, r.max, color_u32(hovered ? kLoginBorder : fade(kLoginIcon, 0.55f)), 5.0f, 0, 1.4f);
+	}
+
+	text(font.body, 16.0f, ImVec2(r.max.x + 12.0f, position.y + 1.0f), hovered ? kText : lift(kLoginIcon, 0.18f), value);
+	return clicked;
+}
+
+bool login_link(const char* id, ImVec2 position, const char* value)
+{
+	const float size = 16.0f;
+	const float w = text_width(font.body, size, value);
+
+	ImGui::SetCursorScreenPos(position);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(w, size + 4.0f));
+	const bool hovered = ImGui::IsItemHovered();
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+	const ImVec4 color = hovered ? lift(kLoginLink, 0.12f) : kLoginLink;
+	text(font.body, size, position, color, value);
+	if (hovered)
+		ImGui::GetWindowDrawList()->AddLine(ImVec2(position.x, position.y + size + 2.0f),
+			ImVec2(position.x + w, position.y + size + 2.0f), color_u32(fade(color, 0.7f)), 1.0f);
+	return clicked;
+}
+
+bool login_button(const char* id, const Rect& r, const char* value)
+{
+	ImGui::SetCursorScreenPos(r.min);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
+	const bool hovered = ImGui::IsItemHovered();
+	const bool held = ImGui::IsItemActive();
+	if (hovered)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+	const float shift = held ? -0.04f : (hovered ? 0.06f : 0.0f);
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	if (hovered)
+		draw->AddRect(ImVec2(r.min.x - 2.0f, r.min.y - 2.0f), ImVec2(r.max.x + 2.0f, r.max.y + 2.0f),
+			color_u32(fade(kLoginPurple, 0.30f)), 12.0f, 0, 3.0f);
+	gradient_box(r, lift(kLoginBlue, shift), lift(kLoginPurple, shift), 10.0f);
+
+	const float size = 19.0f;
+	const float label_w = text_width(font.semibold, size, value);
+	const float arrow_w = 16.0f;
+	const float total = label_w + 12.0f + arrow_w;
+	const float x = r.min.x + (width(r) - total) * 0.5f;
+	const float y = r.min.y + (height(r) - size) * 0.5f - 1.0f;
+	text(font.semibold, size, ImVec2(x, y), kText, value);
+
+	const ImU32 white = IM_COL32_WHITE;
+	const float ax = x + label_w + 12.0f;
+	const float ay = r.min.y + height(r) * 0.5f;
+	draw->AddLine(ImVec2(ax, ay), ImVec2(ax + arrow_w, ay), white, 2.0f);
+	draw->AddLine(ImVec2(ax + arrow_w - 6.0f, ay - 6.0f), ImVec2(ax + arrow_w, ay), white, 2.0f);
+	draw->AddLine(ImVec2(ax + arrow_w - 6.0f, ay + 6.0f), ImVec2(ax + arrow_w, ay), white, 2.0f);
+	return clicked;
+}
+
+void draw_login_waves(const Rect& card, float time)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->PushClipRect(ImVec2(card.min.x + 2.0f, card.min.y), ImVec2(card.max.x - 2.0f, card.max.y - 2.0f), true);
+
+	const float bottom = card.max.y;
+	for (int i = 0; i < 14; ++i)
+	{
+		const float f = static_cast<float>(i);
+		const float wave = std::sin(time * 0.6f + f * 0.35f) * 6.0f;
+		const ImU32 color = color_u32(fade(i % 3 == 0 ? kLoginPurple : kLoginBlue, 0.10f + 0.012f * f));
+
+		draw->AddBezierCubic(
+			ImVec2(card.min.x - 10.0f, bottom - 150.0f + f * 7.0f),
+			ImVec2(card.min.x + 90.0f, bottom - 150.0f + f * 4.0f + wave),
+			ImVec2(card.min.x + 170.0f, bottom - 20.0f - wave),
+			ImVec2(card.min.x + 300.0f + f * 6.0f, bottom + 6.0f),
+			color, 1.2f);
+
+		draw->AddBezierCubic(
+			ImVec2(card.max.x + 10.0f, bottom - 140.0f + f * 6.0f),
+			ImVec2(card.max.x - 80.0f, bottom - 150.0f + f * 5.0f - wave),
+			ImVec2(card.max.x - 180.0f, bottom - 10.0f + wave),
+			ImVec2(card.max.x - 320.0f - f * 6.0f, bottom + 6.0f),
+			color, 1.2f);
+	}
+
+	draw->PopClipRect();
+}
+
+void submit_login()
+{
+	if (login.username[0] == '\0')
+	{
+		login.message = "Enter your username or IP.";
+		login.message_is_error = true;
+		login.focus_username = true;
+		return;
+	}
+
+	if (login.password[0] == '\0')
+	{
+		login.message = "Enter your password.";
+		login.message_is_error = true;
+		login.focus_password = true;
+		return;
+	}
+
+	// Replace this block with your real credential check.
+	login.logged_in = true;
+	login.message.clear();
+	SecureZeroMemory(login.password, sizeof(login.password));
+	state.status = std::string("Signed in as ") + login.username + ".";
+}
+
+void draw_login_screen()
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float time = static_cast<float>(ImGui::GetTime());
+	const float cx = app::kWidth * 0.5f;
+
+	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(app::kWidth, app::kHeight), color_u32(kLoginBg));
+	draw->AddCircleFilled(ImVec2(cx, 150.0f), 360.0f, color_u32(fade(kLoginBlue, 0.035f)), 96);
+	draw->AddCircleFilled(ImVec2(cx, 150.0f), 220.0f, color_u32(fade(kLoginPurple, 0.035f)), 96);
+
+	// Drag strip and window buttons.
+	ImGui::SetCursorScreenPos(ImVec2(0.0f, 0.0f));
+	ImGui::InvisibleButton("##login_drag", ImVec2(app::kWidth - 100.0f, 22.0f));
+	if (ImGui::IsItemClicked())
+		StartWindowDrag();
+
+	if (window_button("##login_minimize", rect(app::kWidth - 84.0f, 10.0f, app::kWidth - 52.0f, 42.0f), false))
+		ShowWindow(g_hwnd, SW_MINIMIZE);
+	if (window_button("##login_close", rect(app::kWidth - 44.0f, 10.0f, app::kWidth - 12.0f, 42.0f), true))
+		PostQuitMessage(0);
+
+	// Card.
+	const Rect card = rect(cx - 280.0f, 24.0f, cx + 280.0f, app::kHeight - 24.0f);
+	draw->AddRect(ImVec2(card.min.x - 3.0f, card.min.y - 3.0f), ImVec2(card.max.x + 3.0f, card.max.y + 3.0f),
+		color_u32(fade(kLoginBlue, 0.10f)), 21.0f, 0, 4.0f);
+	box(card, kLoginCard, 18.0f, &kLoginBorder);
+	draw_login_waves(card, time);
+
+	// Card background is otherwise empty, so it drags the window too.
+	ImGui::SetCursorScreenPos(ImVec2(card.min.x, card.min.y));
+	ImGui::InvisibleButton("##card_drag", ImVec2(width(card), 20.0f));
+	if (ImGui::IsItemClicked())
+		StartWindowDrag();
+
+	// Logo.
+	const float pulse = 0.5f + 0.5f * std::sin(time * 1.6f);
+	draw->AddCircleFilled(ImVec2(cx, 112.0f), 58.0f + pulse * 6.0f, color_u32(fade(kLoginPurple, 0.06f)), 64);
+	draw->AddCircleFilled(ImVec2(cx, 112.0f), 40.0f, color_u32(fade(kLoginBlue, 0.07f)), 64);
+	const float half = kLogoSize * 0.5f;
+	if (logo_texture)
+		draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<intptr_t>(logo_texture)),
+			ImVec2(cx - half, 112.0f - half), ImVec2(cx + half, 112.0f + half));
+	else
+		gradient_text(font.title, 72.0f, ImVec2(cx - 20.0f, 70.0f), "S", kLoginPurple, kLoginBlue);
+
+	// Title.
+	const float title_size = 40.0f;
+	const float first_w = text_width(font.title, title_size, "Sachin ");
+	const float title_w = first_w + text_width(font.title, title_size, "Loader");
+	const ImVec2 title_pos(cx - title_w * 0.5f, 184.0f);
+	text(font.title, title_size, title_pos, kText, "Sachin ");
+	gradient_text(font.title, title_size, ImVec2(title_pos.x + first_w, title_pos.y), "Loader",
+		kLoginPurple, lift(kLoginBlue, 0.12f));
+
+	const char* subtitle = "Software Apps, Game Loader";
+	const float subtitle_w = text_width(font.body, 17.0f, subtitle);
+	text(font.body, 17.0f, ImVec2(cx - subtitle_w * 0.5f, 236.0f), kLoginSubtitle, subtitle);
+
+	// Fields.
+	const float fx = cx - 210.0f;
+	const float fw = 420.0f;
+
+	const bool focus_user = login.focus_username;
+	login.focus_username = false;
+	if (login_field("##username", rect(fx, 288.0f, fx + fw, 342.0f), login.username, sizeof(login.username),
+		"Username or IP", FieldIcon::User, nullptr, focus_user))
+		login.focus_password = true;
+
+	const bool focus_pass = login.focus_password;
+	login.focus_password = false;
+	const bool enter = login_field("##password", rect(fx, 358.0f, fx + fw, 412.0f), login.password,
+		sizeof(login.password), "Password", FieldIcon::Lock, &login.show_password, focus_pass);
+
+	login_checkbox("##remember", ImVec2(fx, 432.0f), "Remember me", &login.remember);
+
+	const char* forgot = "Forgot password?";
+	if (login_link("##forgot", ImVec2(fx + fw - text_width(font.body, 16.0f, forgot), 433.0f), forgot))
+	{
+		login.message = "Contact support to reset your password.";
+		login.message_is_error = false;
+	}
+
+	if (!login.message.empty())
+	{
+		const ImVec4 color = login.message_is_error ? kRed : kLoginSubtitle;
+		const float w = text_width(font.body, 14.0f, login.message.c_str());
+		text(font.body, 14.0f, ImVec2(cx - w * 0.5f, 468.0f), color, login.message.c_str());
+	}
+
+	if (login_button("##login", rect(fx, 494.0f, fx + fw, 548.0f), "Login") || enter)
+		submit_login();
+
+	const char* footer = "Secure  -  Private  -  Fast";
+	const float footer_w = text_width(font.body, 15.0f, footer);
+	text(font.body, 15.0f, ImVec2(cx - footer_w * 0.5f, 612.0f), fade(kLoginSubtitle, 0.75f), footer);
+}
+
 // ---------------------------------------------------------------- lifecycle ----
 
 void apply_style()
@@ -617,10 +1088,16 @@ void app::Init()
 
 	load_fonts();
 	apply_style();
+	load_logo();
 }
 
 void app::Shutdown()
 {
+	if (logo_texture)
+	{
+		logo_texture->Release();
+		logo_texture = nullptr;
+	}
 }
 
 void app::Render()
@@ -657,6 +1134,14 @@ void app::Render()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 	ImGui::Begin("##root", nullptr, flags);
+
+	if (!login.logged_in)
+	{
+		draw_login_screen();
+		ImGui::End();
+		ImGui::PopStyleVar(2);
+		return;
+	}
 
 	draw_background();
 	draw_title_bar();
