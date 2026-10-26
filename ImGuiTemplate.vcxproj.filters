@@ -87,5 +87,8 @@
     <None Include="src\Resources\app.ico">
       <Filter>Resource Files</Filter>
     </None>
+    <Manifest Include="src\Resources\app.manifest">
+      <Filter>Resource Files</Filter>
+    </Manifest>
   </ItemGroup>
 </Project>

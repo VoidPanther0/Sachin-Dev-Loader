@@ -14,6 +14,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      WINDOWS_CERT_PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -24,6 +27,34 @@ jobs:
 
       - name: Build Release x64
         run: msbuild ImGuiTemplate.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
+
+      - name: Sign executable
+        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe was not found in the Windows SDK." }
+
+          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "ImGuiTemplate.exe" |
+            Where-Object { $_.FullName -notlike "*\dist\*" } |
+            Select-Object -First 1
+          if (-not $exe) { throw "ImGuiTemplate.exe was not produced by the build." }
+
+          & $signtool.FullName sign /fd SHA256 /f $pfx /p $env:WINDOWS_CERT_PFX_PASSWORD `
+            /tr http://timestamp.digicert.com /td SHA256 $exe.FullName
+          if ($LASTEXITCODE -ne 0) { throw "signtool sign failed with exit code $LASTEXITCODE." }
+
+          & $signtool.FullName verify /pa /v $exe.FullName
+          if ($LASTEXITCODE -ne 0) { throw "signtool verify failed with exit code $LASTEXITCODE." }
+
+          Remove-Item $pfx -Force
 
       - name: Package
         shell: pwsh

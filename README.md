@@ -16,6 +16,7 @@ self-contained. There is no backend, network layer, or saved settings.
 - Custom dark theme with a live accent color picker
 - Segoe UI fonts loaded from the system font directory
 - Static C++ runtime, so the executable does not need the VC++ Redistributable
+- Embedded `asInvoker` application manifest, so the app never requests elevation
 - Dear ImGui 1.93.1 WIP vendored in `src/gui` (no submodules, no package manager)
 
 ## Requirements
@@ -53,7 +54,7 @@ src/
   ui.cpp              Theme, layout, and the single-screen widget gallery
   app.h               Shared globals and app entry points
   resource.h          Icon resource identifier
-  Resources/          app.ico, version.rc
+  Resources/          app.ico, app.manifest, version.rc
   gui/                Vendored Dear ImGui
     backends/         Win32 + DirectX 11 platform/renderer backends
 ImGuiTemplate.sln
@@ -79,7 +80,9 @@ ImGuiTemplate.vcxproj
 
 To rename the project, rename `ImGuiTemplate.sln`, `ImGuiTemplate.vcxproj`, and
 `ImGuiTemplate.vcxproj.filters`, update the `Project(` line in the solution, and
-update the build commands in `.github/workflows/build-release.yml`.
+update the build commands in `.github/workflows/build-release.yml`. Also update
+`assemblyIdentity` in `src/Resources/app.manifest` and the strings in
+`src/Resources/version.rc` so the binary metadata matches the new name.
 
 ## Release
 
@@ -94,11 +97,28 @@ The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches
 `ImGuiTemplate-v1.0.0-win64.zip` to the GitHub Release. The zip contains the
 executable, this README, and `SHA256SUMS.txt`.
 
-## Unsigned builds
+## Code signing and antivirus false positives
 
-Release builds are unsigned by default. Windows Defender and SmartScreen may
-treat a new unsigned executable cautiously. Sign with an OV or EV code-signing
-certificate before public distribution:
+Release builds are unsigned by default. Windows Defender, SmartScreen, and other
+engines treat new unsigned executables cautiously. Heuristic detections can name a
+clean build as a trojan. This template has been reported as
+`Trojan:Script/Conteban.A!ml` by Defender while every file in this repository
+scanned clean; that name is a known machine-learning false positive on unsigned
+archives and installers.
+
+If one engine flags a release that you built yourself:
+
+1. Confirm the SHA-256 value matches `SHA256SUMS.txt` from the release, and scan
+   the file with the Microsoft Safety Scanner and a second engine.
+2. Submit the file to Microsoft as an incorrect detection:
+   <https://www.microsoft.com/en-us/wdsi/filesubmission>. Include the detection
+   name, the Defender security intelligence version, the file hash, and the public
+   repository URL. Microsoft usually corrects a false positive in one to three
+   days.
+3. Update Defender, rebuild, and scan the new binary again.
+
+Code signing is the durable fix. Sign with an OV or EV code-signing certificate
+before public distribution:
 
 ```powershell
 signtool sign /fd SHA256 /f certificate.pfx /p "<password>" `
@@ -106,5 +126,29 @@ signtool sign /fd SHA256 /f certificate.pfx /p "<password>" `
   ImGuiTemplate.exe
 ```
 
+The release workflow signs the executable automatically when these repository
+secrets exist:
+
+| Secret                       | Value                                |
+| ---------------------------- | ------------------------------------ |
+| `WINDOWS_CERT_PFX_BASE64`    | Base64 of the `.pfx` file            |
+| `WINDOWS_CERT_PFX_PASSWORD`  | Password for the `.pfx` file         |
+
 A self-signed certificate is suitable only for internal test machines that trust
 the root certificate. It does not establish public publisher reputation.
+
+For local development only, you can exclude the build output directory so Defender
+does not delete each new build:
+
+```powershell
+Add-MpPreference -ExclusionPath "C:\path\to\repo\x64\Release"
+```
+
+Remove the exclusion when you are done:
+
+```powershell
+Remove-MpPreference -ExclusionPath "C:\path\to\repo\x64\Release"
+```
+
+Never add an exclusion for files downloaded from other people, and never ask users
+to disable antivirus protection to run a release.

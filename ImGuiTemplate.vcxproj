@@ -158,6 +158,9 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
+    <Manifest Include="src\Resources\app.manifest" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\ui.cpp" />
     <ClCompile Include="src\gui\imgui.cpp" />
