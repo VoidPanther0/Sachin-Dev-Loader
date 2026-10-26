@@ -79,6 +79,72 @@ void ShowError(const wchar_t* message)
 	MessageBoxW(nullptr, message, app::kTitle, MB_ICONERROR | MB_OK);
 }
 
+bool StartProcess(const std::wstring& file)
+{
+	std::wstring command = L"\"" + file + L"\"";
+	STARTUPINFOW info{};
+	info.cb = sizeof(info);
+	PROCESS_INFORMATION process{};
+	if (!CreateProcessW(file.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &info, &process))
+		return false;
+
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+	return true;
+}
+
+// --apply-update <target> <pid>
+//
+// Backward compatibility with 0.1 clients. Those builds download this exe to
+// %TEMP% and start it as a helper, expecting it to wait for the old loader,
+// copy itself over the old file and start the updated loader. Newer builds
+// swap the exe in place and never use this path, but the helper must stay here
+// so an old client can make the jump to the current release.
+int RunUpdateHelper(const std::wstring& target, DWORD old_pid)
+{
+	if (old_pid != 0)
+	{
+		HANDLE old_process = OpenProcess(SYNCHRONIZE, FALSE, old_pid);
+		if (old_process)
+		{
+			WaitForSingleObject(old_process, 60000);
+			CloseHandle(old_process);
+		}
+		else
+		{
+			Sleep(1500);
+		}
+	}
+
+	wchar_t self[MAX_PATH] = {};
+	if (GetModuleFileNameW(nullptr, self, MAX_PATH) == 0)
+	{
+		ShowError(L"Could not find the downloaded update.");
+		return 1;
+	}
+
+	bool copied = false;
+	for (int attempt = 0; attempt < 60 && !copied; ++attempt)
+	{
+		copied = CopyFileW(self, target.c_str(), FALSE) != FALSE;
+		if (!copied)
+			Sleep(500);
+	}
+
+	if (copied && StartProcess(target))
+		return 0;
+
+	// The old file could not be replaced. Run the downloaded copy instead.
+	if (StartProcess(self))
+	{
+		MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+		return 0;
+	}
+
+	ShowError(L"The update was downloaded but could not be started.");
+	return 1;
+}
+
 // After an update the previous build is left as <exe>.old (a running exe can
 // be renamed but not deleted). Remove it and report that this run is the
 // updated build. The old process may still be closing, so retry briefly.
@@ -161,6 +227,18 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 	(void)previous;
 	(void)command_line;
 	(void)show_command;
+
+	int argument_count = 0;
+	LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
+	if (arguments && argument_count >= 4 && std::wstring(arguments[1]) == L"--apply-update")
+	{
+		const std::wstring target = arguments[2];
+		const DWORD old_pid = static_cast<DWORD>(wcstoul(arguments[3], nullptr, 10));
+		LocalFree(arguments);
+		return RunUpdateHelper(target, old_pid);
+	}
+	if (arguments)
+		LocalFree(arguments);
 
 	g_updated = CleanupPreviousBuild();
 
