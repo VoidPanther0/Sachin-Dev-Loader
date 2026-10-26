@@ -338,7 +338,10 @@ async function BuildCall(
 	if (data.ok !== true) {
 		const code = Text(data.error);
 		const message = Text(data.message);
-		return Fail(code === "maintenance" && message ? message : MapAccountError(code));
+		const error = code === "maintenance" && message ? message : MapAccountError(code);
+		const downloadUrl = Text(data.url);
+		if (downloadUrl) return Json({ ok: false, error, download_url: downloadUrl });
+		return Fail(error);
 	}
 
 	return Json({

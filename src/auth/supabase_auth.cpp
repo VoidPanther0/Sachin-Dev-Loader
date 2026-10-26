@@ -33,7 +33,7 @@ namespace {
 const wchar_t* kBaseUrl = L"https://xdtidxtkvrmurzogkxuv.supabase.co";
 const wchar_t* kAuthFunctionPath = L"/functions/v1/loader-auth";
 const char* kPublishableKey = "sb_publishable_xoEwnFlQuy-LLO5h8CRW_w_lS_uiEYr";
-const char* kUserAgent = "SachinDevLoader/1.0";
+const char* kUserAgent = "SachinDevLoader/0.1";
 
 const int kHeartbeatSeconds = 300;
 const std::size_t kMaxResponseBytes = 256 * 1024;
@@ -54,6 +54,7 @@ std::atomic<int> g_startup_status(static_cast<int>(sdauth::StatusIdle));
 std::atomic<int> g_startup_stage(static_cast<int>(sdauth::StartupNone));
 std::atomic<bool> g_startup_busy(false);
 std::string g_startup_message;
+std::string g_download_url;
 
 long long NowSeconds() {
 	return static_cast<long long>(std::time(nullptr));
@@ -79,6 +80,11 @@ void SetStage(int stage) {
 void SetComponents(const std::vector<sdauth::Component>& components) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_components = components;
+}
+
+void SetDownloadUrl(const std::string& url) {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	g_download_url = url;
 }
 
 // Zeros sensitive buffers on every return path.
@@ -392,7 +398,7 @@ bool ParseFunctionResult(const std::string& body, std::string& error) {
 	return true;
 }
 
-bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error) {
+bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error, std::string& download_url) {
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root)) {
 		error = "Bad server answer";
@@ -403,6 +409,9 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 		error = root.get_string("error");
 		if (error.empty())
 			error = "Loader check failed. Try again";
+		download_url = root.get_string("download_url");
+		if (download_url.empty())
+			download_url = root.get_string("url");
 		return false;
 	}
 
@@ -445,12 +454,15 @@ bool RunBootstrap(const std::string& access_token, const std::string& hwid, std:
 	}
 
 	std::vector<sdauth::Component> components;
-	if (response.status != 200 || !ParseComponents(response.body, components, error)) {
+	std::string download_url;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, download_url)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
+		SetDownloadUrl(download_url);
 		return false;
 	}
 
+	SetDownloadUrl("");
 	SetComponents(components);
 	return true;
 }
@@ -491,14 +503,17 @@ void RunStartup(std::string hwid) {
 
 	std::string error;
 	std::vector<sdauth::Component> components;
-	if (response.status != 200 || !ParseComponents(response.body, components, error)) {
+	std::string download_url;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, download_url)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
+		SetDownloadUrl(download_url);
 		SetStartup(sdauth::StatusError, error);
 		return;
 	}
 
 	g_startup_stage.store(sdauth::StartupComponents);
+	SetDownloadUrl("");
 	SetComponents(components);
 
 	g_startup_stage.store(sdauth::StartupDone);
@@ -707,6 +722,7 @@ void StartStartup() {
 
 	const std::string hwid = MachineHwid();
 	g_startup_stage.store(StartupConnecting);
+	SetDownloadUrl("");
 	SetStartup(StatusWorking, "Connecting...");
 
 	std::thread([hwid]() {
@@ -726,6 +742,11 @@ int StartupStageValue() {
 std::string StartupMessage() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	return g_startup_message;
+}
+
+std::string StartupDownloadUrl() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_download_url;
 }
 
 int LoginStage() {

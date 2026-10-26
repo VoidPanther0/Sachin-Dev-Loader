@@ -134,9 +134,14 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 
 	try
 	{
-		HICON icon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_APPICON));
+		HICON icon = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
+			GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR));
+		HICON icon_small = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
+			GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
 		if (!icon)
 			icon = LoadIconW(nullptr, IDI_APPLICATION);
+		if (!icon_small)
+			icon_small = icon;
 
 		WNDCLASSEXW window_class{};
 		window_class.cbSize = sizeof(window_class);
@@ -144,7 +149,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 		window_class.lpfnWndProc = WndProc;
 		window_class.hInstance = instance;
 		window_class.hIcon = icon;
-		window_class.hIconSm = icon;
+		window_class.hIconSm = icon_small;
 		window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
 		window_class.lpszClassName = L"ImGuiTemplateWindow";
 

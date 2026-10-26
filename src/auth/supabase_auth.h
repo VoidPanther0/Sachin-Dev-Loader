@@ -67,6 +67,10 @@ int StartupStatus();
 int StartupStageValue();
 std::string StartupMessage();
 
+// Latest release page sent by the server when this build is rejected.
+// Empty when no download is offered.
+std::string StartupDownloadUrl();
+
 // Call every frame from the render loop. Refreshes the token and re-checks the
 // account in the background so a banned or moved account loses its session.
 void Tick();

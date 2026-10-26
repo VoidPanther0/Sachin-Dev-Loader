@@ -76,16 +76,17 @@ Manage the checks from the SQL editor:
 
 ```sql
 -- Register a release build (hash from SHA256SUMS.txt), then enforce hashes.
-insert into public.loader_builds (exe_hash, version) values ('<sha256>', '1.0.0');
+insert into public.loader_builds (exe_hash, version) values ('<sha256>', '0.1');
 update public.loader_config set enforce_build_hash = true;
 
--- Block old clients or turn on maintenance.
-update public.loader_config set min_version = '1.0.1';
+-- Block old clients or turn on maintenance. Rejected clients receive release_url.
+update public.loader_config set min_version = '0.1.1';
 update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM';
+update public.loader_config set release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest';
 
 -- Components shown to the client. requires_login = true hides one until login.
 insert into public.loader_components (name, version, description, requires_login)
-values ('Core', '1.0.0', 'Base runtime', false);
+values ('Core', '0.1', 'Base runtime', false);
 
 -- Audit log of every startup and bootstrap check.
 select * from public.loader_check_log order by id desc limit 50;
@@ -177,13 +178,14 @@ update the build commands in `.github/workflows/build-release.yml`. Also update
 Push a version tag:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v0.1
+git push origin v0.1
 ```
 
 The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches
-`ImGuiTemplate-v1.0.0-win64.zip` to the GitHub Release. The zip contains the
-executable, this README, and `SHA256SUMS.txt`.
+`ImGuiTemplate-v0.1-win64.zip` and `app.ico` to the GitHub Release. The zip
+contains the executable, this README, `app.ico`, `Slogo.png`, and
+`SHA256SUMS.txt`.
 
 ## Code signing and antivirus false positives
 

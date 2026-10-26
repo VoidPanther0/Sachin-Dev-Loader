@@ -4,6 +4,7 @@
 #include "imgui_internal.h"
 
 #include <wincodec.h>
+#include <shellapi.h>
 
 #include <cmath>
 #include <cstdio>
@@ -694,6 +695,14 @@ void busy_button(const Rect& r, const char* value)
 	text_center(font.semibold, 20.0f, r, fade(kText, 0.75f), value);
 }
 
+void open_url(const std::string& url)
+{
+	if (url.empty())
+		return;
+	const std::wstring wide(url.begin(), url.end());
+	ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 void draw_startup()
 {
 	const int count = static_cast<int>(sizeof(kStartupSteps) / sizeof(kStartupSteps[0]));
@@ -713,9 +722,28 @@ void draw_startup()
 	draw_loading(kStartupSteps, count, login.anim, failed_step, caption, failed);
 
 	const float fx = 60.0f;
-	const Rect button = rect(fx, 472.0f, app::kLoginWidth - fx, 530.0f);
+	const float fw = app::kLoginWidth - fx * 2.0f;
+	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
 	if (failed)
 	{
+		const std::string download = sdauth::StartupDownloadUrl();
+		if (!download.empty())
+		{
+			const float gap = 12.0f;
+			const Rect retry = rect(fx, 472.0f, fx + (fw - gap) * 0.42f, 530.0f);
+			const Rect latest = rect(retry.max.x + gap, 472.0f, fx + fw, 530.0f);
+
+			if (login_button("##startup_retry", retry, "Retry"))
+			{
+				login.anim = LoadingAnim();
+				login.anim.step_time = ImGui::GetTime();
+				sdauth::StartStartup();
+			}
+			if (login_button("##startup_download", latest, "Download"))
+				open_url(download);
+			return;
+		}
+
 		if (login_button("##startup_retry", button, "Retry"))
 		{
 			login.anim = LoadingAnim();

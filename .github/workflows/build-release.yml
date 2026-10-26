@@ -69,6 +69,8 @@ jobs:
 
           Copy-Item $exe.FullName (Join-Path $dist "ImGuiTemplate.exe") -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE "README.md") $dist -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "src/Resources/app.ico") (Join-Path $dist "app.ico") -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "src/Resources/Slogo.png") (Join-Path $dist "Slogo.png") -Force
 
           $hash = (Get-FileHash (Join-Path $dist "ImGuiTemplate.exe") -Algorithm SHA256).Hash
           "$hash  ImGuiTemplate.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
@@ -89,6 +91,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          name: Sachin Dev Loader ${{ github.ref_name }}
+          body: |
+            <img src="https://raw.githubusercontent.com/sapkotasachin064-beep/Sachin-Dev-Loader/main/src/Resources/Slogo.png" width="96" alt="Sachin Dev Loader">
+
+            Windows x64 build. Download the zip, extract it, and run `ImGuiTemplate.exe`.
+            Verify the executable against `SHA256SUMS.txt`.
+          files: |
+            dist/*.zip
+            dist/app.ico
           generate_release_notes: true
           fail_on_unmatched_files: true
