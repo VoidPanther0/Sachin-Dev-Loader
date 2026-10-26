@@ -22,7 +22,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{F6A287E5-756B-47D5-8091-6391D2536F84}</ProjectGuid>
-    <RootNamespace>Loader</RootNamespace>
+    <RootNamespace>ImGuiTemplate</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -85,7 +85,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;comdlg32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -108,7 +108,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;comdlg32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -126,7 +126,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;comdlg32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -149,7 +149,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;comdlg32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dwmapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -166,32 +166,6 @@
     <ClCompile Include="src\gui\imgui_widgets.cpp" />
     <ClCompile Include="src\gui\backends\imgui_impl_dx11.cpp" />
     <ClCompile Include="src\gui\backends\imgui_impl_win32.cpp" />
-    <ClCompile Include="src\core\json.cpp" />
-    <ClCompile Include="src\core\paths.cpp" />
-    <ClCompile Include="src\core\logs.cpp" />
-    <ClCompile Include="src\core\settings.cpp" />
-    <ClCompile Include="src\core\games.cpp" />
-    <ClCompile Include="src\core\sha256.cpp" />
-    <ClCompile Include="src\core\auth.cpp" />
-    <ClCompile Include="src\core\dllmgr.cpp" />
-    <ClCompile Include="src\core\launcher.cpp" />
-    <ClCompile Include="src\core\dialogs.cpp" />
-    <ClCompile Include="src\core\theme.cpp" />
-    <ClCompile Include="src\ui\palette.cpp" />
-    <ClCompile Include="src\ui\widgets.cpp" />
-    <ClCompile Include="src\ui\fonts.cpp" />
-    <ClCompile Include="src\ui\branding.cpp" />
-    <ClCompile Include="src\ui\state.cpp" />
-    <ClCompile Include="src\screens\splash.cpp" />
-    <ClCompile Include="src\screens\login.cpp" />
-    <ClCompile Include="src\screens\dashboard.cpp" />
-    <ClCompile Include="src\screens\library.cpp" />
-    <ClCompile Include="src\screens\dllmanagement.cpp" />
-    <ClCompile Include="src\screens\gameconfig.cpp" />
-    <ClCompile Include="src\screens\logs_screen.cpp" />
-    <ClCompile Include="src\screens\thememanager_screen.cpp" />
-    <ClCompile Include="src\screens\settings_screen.cpp" />
-    <ClCompile Include="src\screens\about.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\app.h" />
@@ -204,26 +178,6 @@
     <ClInclude Include="src\gui\imstb_truetype.h" />
     <ClInclude Include="src\gui\backends\imgui_impl_dx11.h" />
     <ClInclude Include="src\gui\backends\imgui_impl_win32.h" />
-    <ClInclude Include="src\core\json.h" />
-    <ClInclude Include="src\core\paths.h" />
-    <ClInclude Include="src\core\clock.h" />
-    <ClInclude Include="src\core\logs.h" />
-    <ClInclude Include="src\core\settings.h" />
-    <ClInclude Include="src\core\games.h" />
-    <ClInclude Include="src\core\sha256.h" />
-    <ClInclude Include="src\core\auth.h" />
-    <ClInclude Include="src\core\dllmgr.h" />
-    <ClInclude Include="src\core\launcher.h" />
-    <ClInclude Include="src\core\dialogs.h" />
-    <ClInclude Include="src\core\theme.h" />
-    <ClInclude Include="src\ui\colorutil.h" />
-    <ClInclude Include="src\ui\palette.h" />
-    <ClInclude Include="src\ui\widgets.h" />
-    <ClInclude Include="src\ui\fonts.h" />
-    <ClInclude Include="src\ui\branding.h" />
-    <ClInclude Include="src\ui\state.h" />
-    <ClInclude Include="src\ui\layout.h" />
-    <ClInclude Include="src\ui\screens.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\Resources\app.ico" />

@@ -2,14 +2,9 @@
 #include "resource.h"
 
 #include <dwmapi.h>
-#include <windowsx.h>
-
 #include <exception>
 
 namespace {
-
-int g_resize_width = 0;
-int g_resize_height = 0;
 
 bool CreateDeviceD3D(HWND window)
 {
@@ -103,42 +98,6 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 		return 0;
 	case WM_ERASEBKGND:
 		return 1;
-	case WM_SIZE:
-		if (wparam != SIZE_MINIMIZED)
-		{
-			g_resize_width = LOWORD(lparam);
-			g_resize_height = HIWORD(lparam);
-		}
-		return 0;
-	case WM_GETMINMAXINFO:
-	{
-		MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lparam);
-		info->ptMinTrackSize.x = static_cast<LONG>(app::kMinWidth);
-		info->ptMinTrackSize.y = static_cast<LONG>(app::kMinHeight);
-		return 0;
-	}
-	case WM_NCHITTEST:
-	{
-		RECT bounds{};
-		GetWindowRect(window, &bounds);
-		const POINT cursor{ GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
-		constexpr int kMargin = 6;
-
-		const bool near_left = cursor.x < bounds.left + kMargin;
-		const bool near_right = cursor.x >= bounds.right - kMargin;
-		const bool near_top = cursor.y < bounds.top + kMargin;
-		const bool near_bottom = cursor.y >= bounds.bottom - kMargin;
-
-		if (near_top && near_left) return HTTOPLEFT;
-		if (near_top && near_right) return HTTOPRIGHT;
-		if (near_bottom && near_left) return HTBOTTOMLEFT;
-		if (near_bottom && near_right) return HTBOTTOMRIGHT;
-		if (near_left) return HTLEFT;
-		if (near_right) return HTRIGHT;
-		if (near_top) return HTTOP;
-		if (near_bottom) return HTBOTTOM;
-		return HTCLIENT;
-	}
 	default:
 		break;
 	}
@@ -172,7 +131,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 		window_class.hIcon = icon;
 		window_class.hIconSm = icon;
 		window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-		window_class.lpszClassName = L"LoaderWindow";
+		window_class.lpszClassName = L"ImGuiTemplateWindow";
 
 		if (!RegisterClassExW(&window_class))
 		{
@@ -182,8 +141,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 
 		const int screen_width = GetSystemMetrics(SM_CXSCREEN);
 		const int screen_height = GetSystemMetrics(SM_CYSCREEN);
-		const int width = static_cast<int>(app::kDefaultWidth);
-		const int height = static_cast<int>(app::kDefaultHeight);
+		const int width = static_cast<int>(app::kWidth);
+		const int height = static_cast<int>(app::kHeight);
 
 		g_hwnd = CreateWindowExW(
 			WS_EX_APPWINDOW,
@@ -290,15 +249,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 				continue;
 			}
 
-			if (g_resize_width != 0 && g_resize_height != 0)
-			{
-				CleanupRenderTarget();
-				g_pSwapChain->ResizeBuffers(0, static_cast<UINT>(g_resize_width), static_cast<UINT>(g_resize_height), DXGI_FORMAT_UNKNOWN, 0);
-				g_resize_width = 0;
-				g_resize_height = 0;
-				CreateRenderTarget();
-			}
-
 			ImGui_ImplDX11_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
@@ -328,7 +278,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 	}
 	catch (const std::exception& error)
 	{
-		MessageBoxA(nullptr, error.what(), "Loader", MB_ICONERROR | MB_OK);
+		MessageBoxA(nullptr, error.what(), "Dear ImGui Template", MB_ICONERROR | MB_OK);
 		return 1;
 	}
 	catch (...)

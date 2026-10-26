@@ -23,7 +23,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build Release x64
-        run: msbuild Loader.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
+        run: msbuild ImGuiTemplate.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
 
       - name: Package
         shell: pwsh
@@ -32,25 +32,25 @@ jobs:
           $dist = Join-Path $env:GITHUB_WORKSPACE "dist"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "Loader.exe" |
+          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "ImGuiTemplate.exe" |
             Select-Object -First 1
-          if (-not $exe) { throw "Loader.exe was not produced by the build." }
+          if (-not $exe) { throw "ImGuiTemplate.exe was not produced by the build." }
 
-          Copy-Item $exe.FullName (Join-Path $dist "Loader.exe") -Force
+          Copy-Item $exe.FullName (Join-Path $dist "ImGuiTemplate.exe") -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE "README.md") $dist -Force
 
-          $hash = (Get-FileHash (Join-Path $dist "Loader.exe") -Algorithm SHA256).Hash
-          "$hash  Loader.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+          $hash = (Get-FileHash (Join-Path $dist "ImGuiTemplate.exe") -Algorithm SHA256).Hash
+          "$hash  ImGuiTemplate.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
 
           $refName = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
-          $zip = Join-Path $dist "Loader-$refName-win64.zip"
+          $zip = Join-Path $dist "ImGuiTemplate-$refName-win64.zip"
           Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -Force
           "Built $zip" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Loader-win64
+          name: ImGuiTemplate-win64
           path: dist/*.zip
           if-no-files-found: error
 
