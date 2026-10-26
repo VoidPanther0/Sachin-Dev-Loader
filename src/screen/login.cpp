@@ -4,7 +4,6 @@
 #include "imgui_internal.h"
 
 #include <wincodec.h>
-#include <shellapi.h>
 
 #include <cmath>
 #include <cstdio>
@@ -695,12 +694,11 @@ void busy_button(const Rect& r, const char* value)
 	text_center(font.semibold, 20.0f, r, fade(kText, 0.75f), value);
 }
 
-void open_url(const std::string& url)
+void retry_startup()
 {
-	if (url.empty())
-		return;
-	const std::wstring wide(url.begin(), url.end());
-	ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+	login.anim = LoadingAnim();
+	login.anim.step_time = ImGui::GetTime();
+	sdauth::StartStartup();
 }
 
 void draw_startup()
@@ -709,47 +707,78 @@ void draw_startup()
 	const int status = sdauth::StartupStatus();
 	const int stage = sdauth::StartupStageValue();
 	const bool failed = status == sdauth::StatusError;
+	const std::string update_url = sdauth::StartupDownloadUrl();
+	const int update_status = sdauth::UpdateStatus();
+	const bool updating = failed && !update_url.empty() &&
+		(update_status == sdauth::UpdateDownloading || update_status == sdauth::UpdateRestarting);
+	const bool update_failed = failed && !update_url.empty() && update_status == sdauth::UpdateFailed;
+
+	// Start the download as soon as the server rejects this build.
+	static std::string auto_update_url;
+	if (failed && !update_url.empty() && update_status == sdauth::UpdateIdle && auto_update_url != update_url)
+	{
+		auto_update_url = update_url;
+		sdauth::StartUpdate();
+	}
+	if (!failed || update_url.empty())
+		auto_update_url.clear();
 
 	// StartupConnecting (1) is step 0; StartupDone means every step is done.
 	const int real_active = status == sdauth::StatusOk ? count : stage - 1;
 	if (!failed)
 		advance_loading(login.anim, real_active, count);
 
-	const int failed_step = failed ? (login.anim.shown < count ? login.anim.shown : count - 1) : -1;
-	std::string caption = failed ? sdauth::StartupMessage() : std::string("Preparing loader...");
+	int failed_step = failed ? (login.anim.shown < count ? login.anim.shown : count - 1) : -1;
+	std::string caption = (updating || update_failed) ? sdauth::UpdateMessage()
+		: (failed ? sdauth::StartupMessage() : std::string("Preparing loader..."));
 	if (caption.empty())
-		caption = "Startup check failed. Retry.";
-	draw_loading(kStartupSteps, count, login.anim, failed_step, caption, failed);
+		caption = failed ? "Startup check failed. Retry." : "Preparing loader...";
+
+	if (updating)
+	{
+		failed_step = -1;
+		login.anim.shown = count;
+		login.anim.progress = static_cast<float>(sdauth::UpdateProgress()) / 100.0f;
+	}
+
+	draw_loading(kStartupSteps, count, login.anim, failed_step, caption, failed && !updating);
 
 	const float fx = 60.0f;
 	const float fw = app::kLoginWidth - fx * 2.0f;
 	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
+
+	if (updating)
+	{
+		char label[64];
+		if (update_status == sdauth::UpdateRestarting)
+			std::snprintf(label, sizeof(label), "Restarting...");
+		else
+			std::snprintf(label, sizeof(label), "Downloading %d%%", sdauth::UpdateProgress());
+		busy_button(button, label);
+
+		if (update_status == sdauth::UpdateRestarting)
+			PostQuitMessage(0);
+		return;
+	}
+
 	if (failed)
 	{
-		const std::string download = sdauth::StartupDownloadUrl();
-		if (!download.empty())
+		if (!update_url.empty())
 		{
 			const float gap = 12.0f;
 			const Rect retry = rect(fx, 472.0f, fx + (fw - gap) * 0.42f, 530.0f);
-			const Rect latest = rect(retry.max.x + gap, 472.0f, fx + fw, 530.0f);
+			const Rect update = rect(retry.max.x + gap, 472.0f, fx + fw, 530.0f);
+			const char* label = update_status == sdauth::UpdateFailed ? "Retry update" : "Update now";
 
-			if (login_button("##startup_retry", retry, "Retry"))
-			{
-				login.anim = LoadingAnim();
-				login.anim.step_time = ImGui::GetTime();
-				sdauth::StartStartup();
-			}
-			if (login_button("##startup_download", latest, "Download"))
-				open_url(download);
+			if (login_button("##startup_retry", retry, "Retry check"))
+				retry_startup();
+			if (login_button("##startup_update", update, label))
+				sdauth::StartUpdate();
 			return;
 		}
 
 		if (login_button("##startup_retry", button, "Retry"))
-		{
-			login.anim = LoadingAnim();
-			login.anim.step_time = ImGui::GetTime();
-			sdauth::StartStartup();
-		}
+			retry_startup();
 		return;
 	}
 

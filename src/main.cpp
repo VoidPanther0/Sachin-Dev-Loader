@@ -2,7 +2,11 @@
 #include "Resources/resource.h"
 
 #include <dwmapi.h>
+#include <shellapi.h>
+
 #include <exception>
+#include <cstdlib>
+#include <string>
 
 namespace {
 
@@ -75,6 +79,68 @@ void ShowError(const wchar_t* message)
 	MessageBoxW(nullptr, message, app::kTitle, MB_ICONERROR | MB_OK);
 }
 
+bool StartProcess(const std::wstring& file)
+{
+	std::wstring command = L"\"" + file + L"\"";
+	STARTUPINFOW info{};
+	info.cb = sizeof(info);
+	PROCESS_INFORMATION process{};
+	if (!CreateProcessW(file.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &info, &process))
+		return false;
+
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+	return true;
+}
+
+// --apply-update <target> <pid>
+// The downloaded build runs as a helper: wait for the old loader to exit, copy
+// itself over the old file, then start the updated loader.
+int RunUpdateHelper(const std::wstring& target, DWORD old_pid)
+{
+	if (old_pid != 0)
+	{
+		HANDLE old_process = OpenProcess(SYNCHRONIZE, FALSE, old_pid);
+		if (old_process)
+		{
+			WaitForSingleObject(old_process, 60000);
+			CloseHandle(old_process);
+		}
+		else
+		{
+			Sleep(1500);
+		}
+	}
+
+	wchar_t self[MAX_PATH] = {};
+	if (GetModuleFileNameW(nullptr, self, MAX_PATH) == 0)
+	{
+		ShowError(L"Could not find the downloaded update.");
+		return 1;
+	}
+
+	bool copied = false;
+	for (int attempt = 0; attempt < 60 && !copied; ++attempt)
+	{
+		copied = CopyFileW(self, target.c_str(), FALSE) != FALSE;
+		if (!copied)
+			Sleep(500);
+	}
+
+	if (copied && StartProcess(target))
+		return 0;
+
+	// The old file could not be replaced. Run the downloaded copy instead.
+	if (StartProcess(self))
+	{
+		MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+		return 0;
+	}
+
+	ShowError(L"The update was downloaded but could not be started.");
+	return 1;
+}
+
 } // namespace
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -131,6 +197,18 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 	(void)previous;
 	(void)command_line;
 	(void)show_command;
+
+	int argument_count = 0;
+	LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
+	if (arguments && argument_count >= 4 && std::wstring(arguments[1]) == L"--apply-update")
+	{
+		const std::wstring target = arguments[2];
+		const DWORD old_pid = static_cast<DWORD>(wcstoul(arguments[3], nullptr, 10));
+		LocalFree(arguments);
+		return RunUpdateHelper(target, old_pid);
+	}
+	if (arguments)
+		LocalFree(arguments);
 
 	try
 	{

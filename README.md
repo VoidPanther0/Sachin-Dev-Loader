@@ -84,6 +84,11 @@ update public.loader_config set min_version = '0.1.1';
 update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM';
 update public.loader_config set release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest';
 
+-- Automatic update: direct executable URL and its SHA-256.
+update public.loader_config
+set update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest/download/ImGuiTemplate.exe',
+    update_sha256 = '<sha256>';
+
 -- Components shown to the client. requires_login = true hides one until login.
 insert into public.loader_components (name, version, description, requires_login)
 values ('Core', '0.1', 'Base runtime', false);
@@ -182,10 +187,14 @@ git tag v0.1
 git push origin v0.1
 ```
 
-The workflow builds `Release|x64`, writes a SHA-256 checksum, and attaches
-`ImGuiTemplate-v0.1-win64.zip` and `app.ico` to the GitHub Release. The zip
-contains the executable, this README, `app.ico`, `Slogo.png`, and
-`SHA256SUMS.txt`.
+The workflow builds `Release|x64` and uploads a two-file artifact:
+`ImGuiTemplate.exe` and `SHA256SUMS.txt`. The GitHub Release contains only
+`ImGuiTemplate.exe` so the direct download URL can update old clients.
+
+When the server rejects an old or modified build it returns `update_url` and
+`sha256`. The loader downloads the executable to `%TEMP%`, verifies the hash,
+and restarts through a small `--apply-update` helper that replaces the old file.
+No browser or release page is opened.
 
 ## Code signing and antivirus false positives
 

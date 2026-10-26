@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cctype>
+#include <cstdlib>
 #include <ctime>
 #include <mutex>
 #include <string>
@@ -54,7 +55,13 @@ std::atomic<int> g_startup_status(static_cast<int>(sdauth::StatusIdle));
 std::atomic<int> g_startup_stage(static_cast<int>(sdauth::StartupNone));
 std::atomic<bool> g_startup_busy(false);
 std::string g_startup_message;
-std::string g_download_url;
+std::string g_update_url;
+std::string g_release_url;
+std::string g_update_sha;
+std::atomic<bool> g_update_busy(false);
+std::atomic<int> g_update_status(static_cast<int>(sdauth::UpdateIdle));
+std::atomic<int> g_update_progress(0);
+std::string g_update_message;
 
 long long NowSeconds() {
 	return static_cast<long long>(std::time(nullptr));
@@ -82,9 +89,25 @@ void SetComponents(const std::vector<sdauth::Component>& components) {
 	g_components = components;
 }
 
-void SetDownloadUrl(const std::string& url) {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	g_download_url = url;
+void SetUpdateInfo(const std::string& update_url, const std::string& release_url, const std::string& sha256) {
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_update_url = update_url;
+		g_release_url = release_url;
+		g_update_sha = sha256;
+		g_update_message.clear();
+	}
+	g_update_progress.store(0);
+	g_update_status.store(static_cast<int>(sdauth::UpdateIdle));
+}
+
+void SetUpdate(int status, int progress, const std::string& message) {
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_update_message = message;
+	}
+	g_update_progress.store(progress);
+	g_update_status.store(status);
 }
 
 // Zeros sensitive buffers on every return path.
@@ -361,6 +384,257 @@ std::string ErrorMessage(const HttpResponse& response, const char* fallback) {
 	return fallback;
 }
 
+// ----------------------------------------------------------------- update ----
+
+const std::size_t kMaxUpdateBytes = 64u * 1024u * 1024u;
+
+bool IsSha256Hex(const std::string& value) {
+	if (value.size() != 64)
+		return false;
+	for (const char c : value) {
+		const bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+		if (!hex)
+			return false;
+	}
+	return true;
+}
+
+// Downloads a file with WinHTTP. GitHub answers the latest-release URL with a
+// redirect, so follow up to five Location headers.
+bool HttpDownload(const std::wstring& url, std::vector<unsigned char>& bytes, std::string& error) {
+	bytes.clear();
+	const std::wstring agent = Utf8ToWide(kUserAgent);
+	std::wstring current = url;
+
+	for (int hop = 0; hop <= 5; ++hop) {
+		URL_COMPONENTS parts;
+		ZeroMemory(&parts, sizeof(parts));
+		parts.dwStructSize = sizeof(parts);
+
+		wchar_t host[256] = {};
+		wchar_t path[2048] = {};
+		parts.lpszHostName = host;
+		parts.dwHostNameLength = 255;
+		parts.lpszUrlPath = path;
+		parts.dwUrlPathLength = 2047;
+
+		if (!WinHttpCrackUrl(current.c_str(), static_cast<DWORD>(current.size()), 0, &parts)) {
+			error = "Bad update URL";
+			return false;
+		}
+
+		const bool secure = parts.nScheme == INTERNET_SCHEME_HTTPS;
+		HINTERNET session = WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+			WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+		if (!session) {
+			error = "WinHTTP is not available";
+			return false;
+		}
+
+		WinHttpSetTimeouts(session, 10000, 10000, 10000, 60000);
+		if (secure) {
+			DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+			WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
+		}
+
+		HINTERNET connection = WinHttpConnect(session, host, parts.nPort, 0);
+		HINTERNET request = connection
+			? WinHttpOpenRequest(connection, L"GET", path, nullptr, WINHTTP_NO_REFERER,
+				WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0)
+			: nullptr;
+
+		const bool sent = request &&
+			WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+				WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+			WinHttpReceiveResponse(request, nullptr);
+
+		if (!sent) {
+			if (request)
+				WinHttpCloseHandle(request);
+			if (connection)
+				WinHttpCloseHandle(connection);
+			WinHttpCloseHandle(session);
+			error = "Cannot download the update";
+			return false;
+		}
+
+		DWORD status_code = 0;
+		DWORD size = sizeof(status_code);
+		WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+			WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &size, WINHTTP_NO_HEADER_INDEX);
+
+		if (status_code == 301 || status_code == 302 || status_code == 303 || status_code == 307 || status_code == 308) {
+			wchar_t location[2048] = {};
+			DWORD location_size = sizeof(location);
+			const bool found = WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION,
+				WINHTTP_HEADER_NAME_BY_INDEX, location, &location_size, WINHTTP_NO_HEADER_INDEX) != FALSE;
+			std::wstring next;
+			if (found)
+				next = location;
+
+			WinHttpCloseHandle(request);
+			WinHttpCloseHandle(connection);
+			WinHttpCloseHandle(session);
+
+			if (next.empty() || hop == 5) {
+				error = "Update download redirect failed";
+				return false;
+			}
+			current = next;
+			continue;
+		}
+
+		if (status_code != 200) {
+			WinHttpCloseHandle(request);
+			WinHttpCloseHandle(connection);
+			WinHttpCloseHandle(session);
+			error = "Update download failed (HTTP " + std::to_string(status_code) + ")";
+			return false;
+		}
+
+		unsigned long long total = 0;
+		wchar_t length_text[64] = {};
+		DWORD length_size = sizeof(length_text);
+		if (WinHttpQueryHeaders(request, WINHTTP_QUERY_CONTENT_LENGTH,
+			WINHTTP_HEADER_NAME_BY_INDEX, length_text, &length_size, WINHTTP_NO_HEADER_INDEX)) {
+			total = _wcstoui64(length_text, nullptr, 10);
+		}
+
+		for (;;) {
+			DWORD available = 0;
+			if (!WinHttpQueryDataAvailable(request, &available) || available == 0)
+				break;
+
+			if (bytes.size() + available > kMaxUpdateBytes) {
+				error = "Update file is too large";
+				WinHttpCloseHandle(request);
+				WinHttpCloseHandle(connection);
+				WinHttpCloseHandle(session);
+				return false;
+			}
+
+			std::vector<unsigned char> chunk(available);
+			DWORD read = 0;
+			if (!WinHttpReadData(request, &chunk[0], available, &read) || read == 0)
+				break;
+
+			chunk.resize(read);
+			bytes.insert(bytes.end(), chunk.begin(), chunk.end());
+
+			if (total > 0 && g_update_status.load() == sdauth::UpdateDownloading) {
+				const unsigned long long percent = static_cast<unsigned long long>(bytes.size()) * 90 / total;
+				g_update_progress.store(static_cast<int>(percent > 90 ? 90 : percent));
+			}
+		}
+
+		WinHttpCloseHandle(request);
+		WinHttpCloseHandle(connection);
+		WinHttpCloseHandle(session);
+
+		if (bytes.empty()) {
+			error = "Update download is empty";
+			return false;
+		}
+		return true;
+	}
+
+	error = "Too many update redirects";
+	return false;
+}
+
+bool WriteAllBytes(const std::wstring& path, const std::vector<unsigned char>& bytes) {
+	HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE)
+		return false;
+
+	DWORD written = 0;
+	const bool ok = WriteFile(file, &bytes[0], static_cast<DWORD>(bytes.size()), &written, nullptr) != FALSE &&
+		written == bytes.size();
+	CloseHandle(file);
+	if (!ok)
+		DeleteFileW(path.c_str());
+	return ok;
+}
+
+bool LaunchSelfWithUpdate(const std::wstring& helper, const std::wstring& target) {
+	std::wstring command = L"\"" + helper + L"\" --apply-update \"" + target + L"\" " +
+		std::to_wstring(GetCurrentProcessId());
+
+	STARTUPINFOW info;
+	ZeroMemory(&info, sizeof(info));
+	info.cb = sizeof(info);
+	PROCESS_INFORMATION process;
+	ZeroMemory(&process, sizeof(process));
+
+	if (!CreateProcessW(helper.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &info, &process))
+		return false;
+
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+	return true;
+}
+
+void RunUpdate(std::string url, std::string expected_sha) {
+	SetUpdate(sdauth::UpdateDownloading, 2, "Downloading update...");
+
+	std::vector<unsigned char> bytes;
+	std::string error;
+	if (!HttpDownload(Utf8ToWide(url), bytes, error)) {
+		SetUpdate(sdauth::UpdateFailed, 0, error);
+		return;
+	}
+
+	SetUpdate(sdauth::UpdateDownloading, 95, "Verifying update...");
+	const std::string blob(reinterpret_cast<const char*>(&bytes[0]), bytes.size());
+	const std::string actual_sha = Sha256Hex(blob);
+	if (!IsSha256Hex(actual_sha)) {
+		SetUpdate(sdauth::UpdateFailed, 0, "Cannot verify the update file");
+		return;
+	}
+
+	if (actual_sha != expected_sha) {
+		SetUpdate(sdauth::UpdateFailed, 0, "Update checksum does not match. Try again");
+		return;
+	}
+
+	const std::string current_sha = ExecutableHash();
+	if (!current_sha.empty() && actual_sha == current_sha) {
+		SetUpdate(sdauth::UpdateFailed, 0, "This is already the latest build");
+		return;
+	}
+
+	wchar_t temp_path[MAX_PATH] = {};
+	const DWORD temp_length = GetTempPathW(MAX_PATH, temp_path);
+	if (temp_length == 0 || temp_length >= MAX_PATH) {
+		SetUpdate(sdauth::UpdateFailed, 0, "Cannot find the temporary folder");
+		return;
+	}
+
+	std::wstring update_file = std::wstring(temp_path, temp_length) +
+		L"SachinDevLoader-update-" + std::to_wstring(GetCurrentProcessId()) + L".exe";
+	if (!WriteAllBytes(update_file, bytes)) {
+		SetUpdate(sdauth::UpdateFailed, 0, "Cannot save the update file");
+		return;
+	}
+
+	wchar_t target_path[MAX_PATH] = {};
+	const DWORD target_length = GetModuleFileNameW(nullptr, target_path, MAX_PATH);
+	if (target_length == 0 || target_length >= MAX_PATH) {
+		DeleteFileW(update_file.c_str());
+		SetUpdate(sdauth::UpdateFailed, 0, "Cannot find the loader file");
+		return;
+	}
+
+	SetUpdate(sdauth::UpdateDownloading, 99, "Restarting...");
+	if (!LaunchSelfWithUpdate(update_file, target_path)) {
+		DeleteFileW(update_file.c_str());
+		SetUpdate(sdauth::UpdateFailed, 0, "Cannot start the update");
+		return;
+	}
+
+	SetUpdate(sdauth::UpdateRestarting, 100, "Restarting...");
+}
+
 // ------------------------------------------------------------------ login ----
 
 bool ParseSession(const std::string& body, const std::string& username, sdauth::Session& session) {
@@ -398,7 +672,8 @@ bool ParseFunctionResult(const std::string& body, std::string& error) {
 	return true;
 }
 
-bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error, std::string& download_url) {
+bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error,
+	std::string& update_url, std::string& release_url, std::string& sha256) {
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root)) {
 		error = "Bad server answer";
@@ -409,9 +684,16 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 		error = root.get_string("error");
 		if (error.empty())
 			error = "Loader check failed. Try again";
-		download_url = root.get_string("download_url");
-		if (download_url.empty())
-			download_url = root.get_string("url");
+		update_url = root.get_string("update_url");
+		release_url = root.get_string("release_url");
+		sha256 = root.get_string("sha256");
+		if (release_url.empty())
+			release_url = root.get_string("download_url"); // 0.1 server: page link
+		if (release_url.empty())
+			release_url = root.get_string("url");
+		if (sha256.size() == 64)
+			for (char& c : sha256)
+				c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
 		return false;
 	}
 
@@ -454,15 +736,17 @@ bool RunBootstrap(const std::string& access_token, const std::string& hwid, std:
 	}
 
 	std::vector<sdauth::Component> components;
-	std::string download_url;
-	if (response.status != 200 || !ParseComponents(response.body, components, error, download_url)) {
+	std::string update_url;
+	std::string release_url;
+	std::string sha256;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetDownloadUrl(download_url);
+		SetUpdateInfo(update_url, release_url, sha256);
 		return false;
 	}
 
-	SetDownloadUrl("");
+	SetUpdateInfo("", "", "");
 	SetComponents(components);
 	return true;
 }
@@ -503,17 +787,19 @@ void RunStartup(std::string hwid) {
 
 	std::string error;
 	std::vector<sdauth::Component> components;
-	std::string download_url;
-	if (response.status != 200 || !ParseComponents(response.body, components, error, download_url)) {
+	std::string update_url;
+	std::string release_url;
+	std::string sha256;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetDownloadUrl(download_url);
+		SetUpdateInfo(update_url, release_url, sha256);
 		SetStartup(sdauth::StatusError, error);
 		return;
 	}
 
 	g_startup_stage.store(sdauth::StartupComponents);
-	SetDownloadUrl("");
+	SetUpdateInfo("", "", "");
 	SetComponents(components);
 
 	g_startup_stage.store(sdauth::StartupDone);
@@ -722,7 +1008,7 @@ void StartStartup() {
 
 	const std::string hwid = MachineHwid();
 	g_startup_stage.store(StartupConnecting);
-	SetDownloadUrl("");
+	SetUpdateInfo("", "", "");
 	SetStartup(StatusWorking, "Connecting...");
 
 	std::thread([hwid]() {
@@ -746,7 +1032,65 @@ std::string StartupMessage() {
 
 std::string StartupDownloadUrl() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_download_url;
+	return g_update_url;
+}
+
+std::string StartupReleaseUrl() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_release_url;
+}
+
+std::string StartupSha256() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_update_sha;
+}
+
+void StartUpdate() {
+	if (g_update_busy.exchange(true))
+		return;
+
+	std::string url;
+	std::string sha;
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		url = g_update_url;
+		sha = g_update_sha;
+	}
+
+	if (url.empty()) {
+		SetUpdate(sdauth::UpdateFailed, 0, "No update download is available");
+		g_update_busy.store(false);
+		return;
+	}
+
+	if (!IsSha256Hex(sha)) {
+		SetUpdate(sdauth::UpdateFailed, 0, "The update checksum is missing");
+		g_update_busy.store(false);
+		return;
+	}
+
+	// A changing query keeps a cached release asset from being served twice.
+	url += (url.find('?') == std::string::npos ? "?" : "&");
+	url += "build=" + sha;
+
+	SetUpdate(sdauth::UpdateDownloading, 1, "Downloading update...");
+	std::thread([url, sha]() {
+		RunUpdate(url, sha);
+		g_update_busy.store(false);
+	}).detach();
+}
+
+int UpdateStatus() {
+	return g_update_status.load();
+}
+
+int UpdateProgress() {
+	return g_update_progress.load();
+}
+
+std::string UpdateMessage() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_update_message;
 }
 
 int LoginStage() {
@@ -827,8 +1171,8 @@ const std::string& MachineHwid() {
 }
 
 bool ValidateUsername(const std::string& username, std::string& error) {
-	if (username.size() < 3 || username.size() > 20) {
-		error = "Username must be 3 to 20 characters";
+	if (username.size() < 2 || username.size() > 20) {
+		error = "Username must be 2 to 20 characters";
 		return false;
 	}
 

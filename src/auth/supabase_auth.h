@@ -33,6 +33,14 @@ enum StartupStage {
 	StartupDone = 4,
 };
 
+// Automatic update state after the server rejects this build.
+enum UpdateState {
+	UpdateIdle = 0,
+	UpdateDownloading = 1,
+	UpdateRestarting = 2,
+	UpdateFailed = 3,
+};
+
 // Login progress (second loading screen, after the Login button).
 // Every stage is decided by the server, not by the client.
 enum Stage {
@@ -67,9 +75,18 @@ int StartupStatus();
 int StartupStageValue();
 std::string StartupMessage();
 
-// Latest release page sent by the server when this build is rejected.
-// Empty when no download is offered.
+// Direct executable URL and SHA-256 sent by the server when this build is
+// rejected. ReleaseUrl is only a fallback page. Empty when unavailable.
 std::string StartupDownloadUrl();
+std::string StartupReleaseUrl();
+std::string StartupSha256();
+
+// Downloads the update, verifies its SHA-256 and restarts through a small
+// helper process. Safe to call again after a failure.
+void StartUpdate();
+int UpdateStatus();
+int UpdateProgress();
+std::string UpdateMessage();
 
 // Call every frame from the render loop. Refreshes the token and re-checks the
 // account in the background so a banned or moved account loses its session.

@@ -228,8 +228,8 @@ async function HandleLogin(body: Record<string, unknown>, ip: string): Promise<R
 	const password = Text(body.password);
 	const hwid = Text(body.hwid).trim().toUpperCase();
 
-	if (!/^[a-z0-9_]{3,20}$/.test(username)) {
-		return Fail("Invalid username. Use 3-20 lowercase letters, digits or _");
+	if (!/^[a-z0-9_]{2,20}$/.test(username)) {
+		return Fail("Invalid username. Use 2-20 lowercase letters, digits or _");
 	}
 	if (!password || password.length > 200) {
 		return Fail("Wrong username or password");
@@ -339,8 +339,19 @@ async function BuildCall(
 		const code = Text(data.error);
 		const message = Text(data.message);
 		const error = code === "maintenance" && message ? message : MapAccountError(code);
-		const downloadUrl = Text(data.url);
-		if (downloadUrl) return Json({ ok: false, error, download_url: downloadUrl });
+		const updateUrl = Text(data.update_url);
+		const releaseUrl = Text(data.release_url) || Text(data.url);
+		const sha256 = Text(data.sha256);
+		if (updateUrl || releaseUrl) {
+			return Json({
+				ok: false,
+				error,
+				download_url: updateUrl || releaseUrl,
+				update_url: updateUrl,
+				release_url: releaseUrl,
+				sha256,
+			});
+		}
 		return Fail(error);
 	}
 

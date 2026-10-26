@@ -68,23 +68,19 @@ jobs:
           if (-not $exe) { throw "ImGuiTemplate.exe was not produced by the build." }
 
           Copy-Item $exe.FullName (Join-Path $dist "ImGuiTemplate.exe") -Force
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "README.md") $dist -Force
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "src/Resources/app.ico") (Join-Path $dist "app.ico") -Force
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "src/Resources/Slogo.png") (Join-Path $dist "Slogo.png") -Force
 
           $hash = (Get-FileHash (Join-Path $dist "ImGuiTemplate.exe") -Algorithm SHA256).Hash
           "$hash  ImGuiTemplate.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
 
-          $refName = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
-          $zip = Join-Path $dist "ImGuiTemplate-$refName-win64.zip"
-          Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -Force
-          "Built $zip" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Built ImGuiTemplate.exe ($hash)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ImGuiTemplate-win64
-          path: dist/*.zip
+          path: |
+            dist/ImGuiTemplate.exe
+            dist/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -95,10 +91,9 @@ jobs:
           body: |
             <img src="https://raw.githubusercontent.com/sapkotasachin064-beep/Sachin-Dev-Loader/main/src/Resources/Slogo.png" width="96" alt="Sachin Dev Loader">
 
-            Windows x64 build. Download the zip, extract it, and run `ImGuiTemplate.exe`.
-            Verify the executable against `SHA256SUMS.txt`.
+            Windows x64 executable. Download `ImGuiTemplate.exe` and run it.
+            Older builds update automatically; verify the file against the build artifact `SHA256SUMS.txt`.
           files: |
-            dist/*.zip
-            dist/app.ico
+            dist/ImGuiTemplate.exe
           generate_release_notes: true
           fail_on_unmatched_files: true
