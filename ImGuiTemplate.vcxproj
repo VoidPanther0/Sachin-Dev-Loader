@@ -162,8 +162,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\supabase_auth.cpp" />
+    <ClCompile Include="src\auth\supabase_auth.cpp" />
     <ClCompile Include="src\ui.cpp" />
+    <ClCompile Include="src\screen\home.cpp" />
+    <ClCompile Include="src\screen\login.cpp" />
     <ClCompile Include="src\gui\imgui.cpp" />
     <ClCompile Include="src\gui\imgui_draw.cpp" />
     <ClCompile Include="src\gui\imgui_tables.cpp" />
@@ -173,9 +175,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\app.h" />
-    <ClInclude Include="src\json_lite.h" />
-    <ClInclude Include="src\resource.h" />
-    <ClInclude Include="src\supabase_auth.h" />
+    <ClInclude Include="src\ui.h" />
+    <ClInclude Include="src\auth\json_lite.h" />
+    <ClInclude Include="src\Resources\resource.h" />
+    <ClInclude Include="src\auth\supabase_auth.h" />
     <ClInclude Include="src\gui\imconfig.h" />
     <ClInclude Include="src\gui\imgui.h" />
     <ClInclude Include="src\gui\imgui_internal.h" />

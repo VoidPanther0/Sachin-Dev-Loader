@@ -16,19 +16,31 @@
     <Filter Include="ImGui">
       <UniqueIdentifier>{A9E4BF7A-7C10-4C0F-9B5A-1D2A0F3E4B11}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Auth">
+      <UniqueIdentifier>{6B1F0C2A-5D3E-4A7B-8C9D-0E1F2A3B4C5D}</UniqueIdentifier>
+    </Filter>
     <Filter Include="ImGui\Backends">
       <UniqueIdentifier>{C2D8E4B6-1F3A-4C7D-9E5B-8A6F2D1C3B40}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Screens">
+      <UniqueIdentifier>{7B4E2D61-9C38-4F5A-B1D2-6E8A0C3F9D24}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\supabase_auth.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="src\auth\supabase_auth.cpp">
+      <Filter>Auth</Filter>
     </ClCompile>
     <ClCompile Include="src\ui.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\home.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\login.cpp">
+      <Filter>Screens</Filter>
     </ClCompile>
     <ClCompile Include="src\gui\imgui.cpp">
       <Filter>ImGui</Filter>
@@ -53,14 +65,17 @@
     <ClInclude Include="src\app.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\json_lite.h">
+    <ClInclude Include="src\ui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\resource.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="src\auth\json_lite.h">
+      <Filter>Auth</Filter>
     </ClInclude>
-    <ClInclude Include="src\supabase_auth.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="src\Resources\resource.h">
+      <Filter>Resource Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\auth\supabase_auth.h">
+      <Filter>Auth</Filter>
     </ClInclude>
     <ClInclude Include="src\gui\imconfig.h">
       <Filter>ImGui</Filter>

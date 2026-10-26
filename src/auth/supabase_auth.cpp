@@ -1,5 +1,6 @@
 #include "supabase_auth.h"
 #include "json_lite.h"
+#include "app.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -30,8 +31,8 @@ namespace {
 // ---------------------------------------------------------------- config ----
 
 const wchar_t* kBaseUrl = L"https://xdtidxtkvrmurzogkxuv.supabase.co";
+const wchar_t* kAuthFunctionPath = L"/functions/v1/loader-auth";
 const char* kPublishableKey = "sb_publishable_xoEwnFlQuy-LLO5h8CRW_w_lS_uiEYr";
-const char* kEmailDomain = "loader.local";
 const char* kUserAgent = "SachinDevLoader/1.0";
 
 const int kHeartbeatSeconds = 300;
@@ -43,9 +44,16 @@ std::mutex g_mutex;
 std::atomic<int> g_status(static_cast<int>(sdauth::StatusIdle));
 std::atomic<bool> g_busy(false);
 std::atomic<long long> g_next_check(0);
+std::atomic<int> g_stage(static_cast<int>(sdauth::StageNone));
 std::string g_message;
 sdauth::Session g_session;
+std::vector<sdauth::Component> g_components;
 std::string g_hwid;
+std::string g_exe_hash;
+std::atomic<int> g_startup_status(static_cast<int>(sdauth::StatusIdle));
+std::atomic<int> g_startup_stage(static_cast<int>(sdauth::StartupNone));
+std::atomic<bool> g_startup_busy(false);
+std::string g_startup_message;
 
 long long NowSeconds() {
 	return static_cast<long long>(std::time(nullptr));
@@ -62,6 +70,15 @@ void SetStatus(int status, const std::string& message) {
 void SetSession(const sdauth::Session& session) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_session = session;
+}
+
+void SetStage(int stage) {
+	g_stage.store(stage);
+}
+
+void SetComponents(const std::vector<sdauth::Component>& components) {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	g_components = components;
 }
 
 // Zeros sensitive buffers on every return path.
@@ -164,6 +181,37 @@ std::string Sha256Hex(const std::string& data) {
 
 	BCryptCloseAlgorithmProvider(algorithm, 0);
 	return result;
+}
+
+// SHA-256 of the running executable. The server compares it with the list of
+// released builds, so a patched binary fails the bootstrap check.
+const std::string& ExecutableHash() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	if (!g_exe_hash.empty())
+		return g_exe_hash;
+
+	wchar_t path[MAX_PATH] = {};
+	const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+	if (length == 0 || length >= MAX_PATH)
+		return g_exe_hash;
+
+	HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE)
+		return g_exe_hash;
+
+	LARGE_INTEGER size = {};
+	std::string bytes;
+	if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart < 512LL * 1024 * 1024) {
+		bytes.resize(static_cast<std::size_t>(size.QuadPart));
+		DWORD read = 0;
+		if (!ReadFile(file, &bytes[0], static_cast<DWORD>(bytes.size()), &read, nullptr) || read != bytes.size())
+			bytes.clear();
+	}
+	CloseHandle(file);
+
+	if (!bytes.empty())
+		g_exe_hash = Sha256Hex(bytes);
+	return g_exe_hash;
 }
 
 // ------------------------------------------------------------------- http ----
@@ -279,69 +327,32 @@ std::wstring ApiUrl(const wchar_t* path) {
 	return std::wstring(kBaseUrl) + path;
 }
 
-std::vector<std::wstring> AuthHeaders(const std::string& bearer) {
+std::vector<std::wstring> FunctionHeaders() {
 	std::vector<std::wstring> headers;
 	headers.push_back(L"apikey: " + Utf8ToWide(kPublishableKey));
 	headers.push_back(L"Content-Type: application/json");
 	headers.push_back(L"Accept: application/json");
-
-	if (!bearer.empty())
-		headers.push_back(L"Authorization: Bearer " + Utf8ToWide(bearer));
-
 	return headers;
 }
 
-// Reads msg / error_code / message out of a Supabase error body.
-void ReadErrorBody(const std::string& body, int status, std::string& code, std::string& message) {
+// The Edge Function returns friendly text in "error" / "message"; use it as-is.
+std::string ErrorMessage(const HttpResponse& response, const char* fallback) {
 	jsonlite::Value root;
-	if (!jsonlite::Parse(body, root))
-		return;
+	if (jsonlite::Parse(response.body, root)) {
+		std::string message = root.get_string("error");
+		if (message.empty())
+			message = root.get_string("message");
+		if (message.empty())
+			message = root.get_string("msg");
+		if (!message.empty())
+			return message;
+	}
 
-	code = root.get_string("error_code");
-	if (code.empty())
-		code = root.get_string("error");
-	if (code.empty())
-		code = root.get_string("code");
-
-	message = root.get_string("msg");
-	if (message.empty())
-		message = root.get_string("error_description");
-	if (message.empty())
-		message = root.get_string("message");
-
-	if (message.empty() && status >= 500)
-		message = "Server error, try again later";
-}
-
-std::string MapLoginError(int status, const std::string& code, const std::string& message) {
-	if (status == 429 || code == "over_email_send_rate_limit" || code == "over_request_rate_limit" || code == "too_many_requests")
-		return "Too many attempts. Wait a minute and try again";
-	if (code == "invalid_credentials" || code == "invalid_grant" || message == "Invalid login credentials")
-		return "Wrong username or password";
-	if (code == "email_not_confirmed")
-		return "Account is not confirmed. Contact the admin";
-	if (code == "user_banned")
-		return "Account is banned";
-	if (code == "email_address_invalid")
-		return "That username is not allowed";
-	if (status == 0)
+	if (response.status == 0)
 		return "Cannot reach the server";
-	if (status >= 500)
+	if (response.status >= 500)
 		return "Server error, try again later";
-	if (!message.empty())
-		return message;
-
-	return "Login failed. Try again";
-}
-
-std::string MapAccountError(const std::string& code) {
-	if (code == "no_account") return "Account setup is incomplete. Contact the admin";
-	if (code == "banned") return "This account is banned";
-	if (code == "hwid_mismatch") return "This account is locked to another device";
-	if (code == "rate_limited") return "Too many attempts. Wait a few minutes";
-	if (code == "invalid_input") return "Could not read this device ID";
-	if (code == "not_authenticated") return "Session expired. Sign in again";
-	return "Login failed. Try again";
+	return fallback;
 }
 
 // ------------------------------------------------------------------ login ----
@@ -365,7 +376,7 @@ bool ParseSession(const std::string& body, const std::string& username, sdauth::
 	return true;
 }
 
-bool ParseAccountResult(const std::string& body, std::string& error) {
+bool ParseFunctionResult(const std::string& body, std::string& error) {
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root)) {
 		error = "Bad server answer";
@@ -373,80 +384,204 @@ bool ParseAccountResult(const std::string& body, std::string& error) {
 	}
 
 	if (!root.get_bool("ok", false)) {
-		error = MapAccountError(root.get_string("error"));
+		error = root.get_string("error");
+		if (error.empty())
+			error = "Account check failed. Sign in again";
 		return false;
 	}
 	return true;
 }
 
+bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error) {
+	jsonlite::Value root;
+	if (!jsonlite::Parse(body, root)) {
+		error = "Bad server answer";
+		return false;
+	}
+
+	if (!root.get_bool("ok", false)) {
+		error = root.get_string("error");
+		if (error.empty())
+			error = "Loader check failed. Try again";
+		return false;
+	}
+
+	const jsonlite::Value* list = root.find("components");
+	if (list && list->is_array()) {
+		for (const jsonlite::Value& item : list->array) {
+			sdauth::Component component;
+			component.name = item.get_string("name");
+			component.version = item.get_string("version");
+			component.description = item.get_string("description");
+			if (!component.name.empty())
+				components.push_back(component);
+		}
+	}
+	return true;
+}
+
+// Server-side bootstrap: account, HWID, client version and executable hash are
+// checked again with the fresh token before any component is released.
+bool RunBootstrap(const std::string& access_token, const std::string& hwid, std::string& error) {
+	const std::string exe_hash = ExecutableHash();
+	if (exe_hash.empty()) {
+		error = "Cannot read the loader file";
+		return false;
+	}
+
+	std::string body =
+		"{\"action\":\"bootstrap\",\"access_token\":\"" + JsonEscape(access_token) +
+		"\",\"hwid\":\"" + JsonEscape(hwid) +
+		"\",\"version\":\"" + JsonEscape(app::kVersion) +
+		"\",\"exe_hash\":\"" + JsonEscape(exe_hash) + "\"}";
+	ZeroOnExit wipe_body(body);
+
+	HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), body);
+	ZeroOnExit wipe_response(response.body);
+
+	if (!response.transport_ok) {
+		error = response.error.empty() ? "Cannot reach the server" : response.error;
+		return false;
+	}
+
+	std::vector<sdauth::Component> components;
+	if (response.status != 200 || !ParseComponents(response.body, components, error)) {
+		if (error.empty() || response.status != 200)
+			error = ErrorMessage(response, "Loader check failed. Try again");
+		return false;
+	}
+
+	SetComponents(components);
+	return true;
+}
+
+// --------------------------------------------------------------- startup ----
+
+void SetStartup(int status, const std::string& message) {
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_startup_message = message;
+	}
+	g_startup_status.store(status);
+}
+
+// Runs before the login form. No account yet: the server checks the build
+// and maintenance flag and returns the public component list.
+void RunStartup(std::string hwid) {
+	g_startup_stage.store(sdauth::StartupConnecting);
+
+	const std::string exe_hash = ExecutableHash();
+	if (exe_hash.empty()) {
+		SetStartup(sdauth::StatusError, "Cannot read the loader file");
+		return;
+	}
+
+	std::string body =
+		"{\"action\":\"startup\",\"hwid\":\"" + JsonEscape(hwid) +
+		"\",\"version\":\"" + JsonEscape(app::kVersion) +
+		"\",\"exe_hash\":\"" + JsonEscape(exe_hash) + "\"}";
+
+	const HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), body);
+	if (!response.transport_ok) {
+		SetStartup(sdauth::StatusError, response.error.empty() ? "Cannot reach the server" : response.error);
+		return;
+	}
+
+	g_startup_stage.store(sdauth::StartupIntegrity);
+
+	std::string error;
+	std::vector<sdauth::Component> components;
+	if (response.status != 200 || !ParseComponents(response.body, components, error)) {
+		if (error.empty() || response.status != 200)
+			error = ErrorMessage(response, "Loader check failed. Try again");
+		SetStartup(sdauth::StatusError, error);
+		return;
+	}
+
+	g_startup_stage.store(sdauth::StartupComponents);
+	SetComponents(components);
+
+	g_startup_stage.store(sdauth::StartupDone);
+	SetStartup(sdauth::StatusOk, "Ready");
+}
+
+void RevokeToken(const std::string& token) {
+	std::string body = "{\"action\":\"logout\",\"access_token\":\"" + JsonEscape(token) + "\"}";
+	ZeroOnExit wipe_body(body);
+	HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), body);
+	ZeroOnExit wipe_response(response.body);
+}
+
 void RunLogin(std::string username, std::string password, std::string hwid) {
 	ZeroOnExit wipe_password(password);
+	SetStage(sdauth::StageAuthenticating);
 
-	std::string token_body =
-		"{\"email\":\"" + JsonEscape(username + "@" + kEmailDomain) + "\",\"password\":\"" + JsonEscape(password) + "\"}";
-	ZeroOnExit wipe_token_body(token_body);
+	std::string body =
+		"{\"action\":\"login\",\"username\":\"" + JsonEscape(username) +
+		"\",\"password\":\"" + JsonEscape(password) +
+		"\",\"hwid\":\"" + JsonEscape(hwid) + "\"}";
+	ZeroOnExit wipe_body(body);
 
-	HttpResponse token = HttpPost(ApiUrl(L"/auth/v1/token?grant_type=password"), AuthHeaders(""), token_body);
-	ZeroOnExit wipe_token_response(token.body);
+	HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), body);
+	ZeroOnExit wipe_response(response.body);
 
-	if (!token.transport_ok) {
-		SetStatus(sdauth::StatusError, token.error.empty() ? "Cannot reach the server" : token.error);
+	if (!response.transport_ok) {
+		SetStatus(sdauth::StatusError, response.error.empty() ? "Cannot reach the server" : response.error);
 		return;
 	}
 
 	sdauth::Session session;
-	if (token.status != 200 || !ParseSession(token.body, username, session)) {
-		std::string code, message;
-		ReadErrorBody(token.body, token.status, code, message);
-		SetStatus(sdauth::StatusError, MapLoginError(token.status, code, message));
+	if (response.status != 200 || !ParseSession(response.body, username, session)) {
+		SetStatus(sdauth::StatusError, ErrorMessage(response, "Login failed. Try again"));
 		return;
 	}
 
 	ZeroOnExit wipe_access(session.access_token);
 	ZeroOnExit wipe_refresh(session.refresh_token);
 
-	const std::string account_body = "{\"p_hwid\":\"" + JsonEscape(hwid) + "\"}";
-	const HttpResponse account = HttpPost(ApiUrl(L"/rest/v1/rpc/account_login"), AuthHeaders(session.access_token), account_body);
+	// The login answer already passed account_login (ban, HWID, rate limit).
+	SetStage(sdauth::StageAccount);
+	SetStage(sdauth::StageSecurity);
 
-	if (!account.transport_ok) {
-		SetStatus(sdauth::StatusError, account.error.empty() ? "Cannot reach the server" : account.error);
-		return;
-	}
-
-	std::string account_error;
-	if (account.status != 200 || !ParseAccountResult(account.body, account_error)) {
-		if (account_error.empty()) {
-			std::string code, message;
-			ReadErrorBody(account.body, account.status, code, message);
-			account_error = MapLoginError(account.status, code, message);
-		}
-		SetStatus(sdauth::StatusError, account_error.empty() ? "Login failed. Try again" : account_error);
+	std::string error;
+	if (!RunBootstrap(session.access_token, hwid, error)) {
+		RevokeToken(session.access_token);
+		SetStatus(sdauth::StatusError, error);
 		return;
 	}
 
 	SetSession(session);
 	g_next_check.store(NowSeconds() + kHeartbeatSeconds);
-	SetStatus(sdauth::StatusOk, "Welcome back, " + username);
+	SetStage(sdauth::StageDone);
+	SetStatus(sdauth::StatusOk, "Welcome back, " + session.username);
 }
 
 // --------------------------------------------------------------- heartbeat ----
 
-bool RefreshSession() {
+bool RefreshSession(std::string& error) {
 	const sdauth::Session current = sdauth::GetSession();
-	if (!current.valid || current.refresh_token.empty())
+	if (!current.valid || current.refresh_token.empty()) {
+		error = "Session expired. Sign in again";
 		return false;
+	}
 
-	std::string body = "{\"refresh_token\":\"" + JsonEscape(current.refresh_token) + "\"}";
+	std::string body =
+		"{\"action\":\"refresh\",\"refresh_token\":\"" + JsonEscape(current.refresh_token) +
+		"\",\"hwid\":\"" + JsonEscape(sdauth::MachineHwid()) + "\"}";
 	ZeroOnExit wipe_body(body);
 
-	HttpResponse response = HttpPost(ApiUrl(L"/auth/v1/token?grant_type=refresh_token"), AuthHeaders(""), body);
+	HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), body);
 	ZeroOnExit wipe_response(response.body);
-	if (!response.transport_ok || response.status != 200)
+	if (!response.transport_ok) {
+		error = response.error.empty() ? "Cannot reach the server" : response.error;
 		return false;
+	}
 
 	sdauth::Session refreshed;
-	if (!ParseSession(response.body, current.username, refreshed))
+	if (response.status != 200 || !ParseSession(response.body, current.username, refreshed)) {
+		error = ErrorMessage(response, "Session expired. Sign in again");
 		return false;
+	}
 
 	ZeroOnExit wipe_access(refreshed.access_token);
 	ZeroOnExit wipe_refresh(refreshed.refresh_token);
@@ -463,11 +598,12 @@ void RunHeartbeat() {
 	}
 
 	if (current.expires_at - 60 <= NowSeconds()) {
-		if (!RefreshSession()) {
+		std::string refresh_error;
+		if (!RefreshSession(refresh_error)) {
 			const bool had_session = sdauth::HasSession();
 			sdauth::SignOut();
 			if (had_session)
-				SetStatus(sdauth::StatusError, "Session expired. Sign in again");
+				SetStatus(sdauth::StatusError, refresh_error.empty() ? "Session expired. Sign in again" : refresh_error);
 			g_busy.store(false);
 			return;
 		}
@@ -478,7 +614,12 @@ void RunHeartbeat() {
 		}
 	}
 
-	const HttpResponse response = HttpPost(ApiUrl(L"/rest/v1/rpc/account_status"), AuthHeaders(current.access_token), "{}");
+	std::string check_body =
+		"{\"action\":\"check\",\"access_token\":\"" + JsonEscape(current.access_token) +
+		"\",\"hwid\":\"" + JsonEscape(sdauth::MachineHwid()) + "\"}";
+	ZeroOnExit wipe_check(check_body);
+
+	const HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), check_body);
 
 	if (!response.transport_ok) {
 		g_busy.store(false); // network hiccup: keep the session, retry later
@@ -486,11 +627,11 @@ void RunHeartbeat() {
 	}
 
 	std::string error;
-	if (response.status != 200 || !ParseAccountResult(response.body, error)) {
+	if (response.status != 200 || !ParseFunctionResult(response.body, error)) {
 		const bool had_session = sdauth::HasSession();
 		sdauth::SignOut();
 		if (had_session) {
-			if (response.status == 401)
+			if (response.status == 401 && error.empty())
 				error = "Session expired. Sign in again";
 			SetStatus(sdauth::StatusError, error.empty() ? "Account check failed. Sign in again" : error);
 		}
@@ -542,6 +683,7 @@ void StartLogin(const std::string& username, const std::string& password) {
 		return;
 
 	const std::string hwid = MachineHwid();
+	SetStage(StageAuthenticating);
 	SetStatus(StatusWorking, "Signing in...");
 
 	std::thread([name, password, hwid]() mutable {
@@ -557,6 +699,42 @@ int LoginStatus() {
 std::string LoginMessage() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	return g_message;
+}
+
+void StartStartup() {
+	if (g_startup_busy.exchange(true))
+		return;
+
+	const std::string hwid = MachineHwid();
+	g_startup_stage.store(StartupConnecting);
+	SetStartup(StatusWorking, "Connecting...");
+
+	std::thread([hwid]() {
+		RunStartup(hwid);
+		g_startup_busy.store(false);
+	}).detach();
+}
+
+int StartupStatus() {
+	return g_startup_status.load();
+}
+
+int StartupStageValue() {
+	return g_startup_stage.load();
+}
+
+std::string StartupMessage() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_startup_message;
+}
+
+int LoginStage() {
+	return g_stage.load();
+}
+
+std::vector<Component> Components() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_components;
 }
 
 void ReportLocalError(const std::string& message) {
@@ -580,6 +758,7 @@ Session GetSession() {
 void SignOut() {
 	const Session current = GetSession();
 	SetSession(Session());
+	SetStage(StageNone);
 	g_next_check.store(0);
 
 	if (!current.valid || current.access_token.empty())
@@ -587,9 +766,7 @@ void SignOut() {
 
 	// Revoke the session in the background, never block the render loop.
 	const std::string token = current.access_token;
-	std::thread([token]() {
-		HttpPost(ApiUrl(L"/auth/v1/logout"), AuthHeaders(token), "{}");
-	}).detach();
+	std::thread([token]() { RevokeToken(token); }).detach();
 }
 
 const std::string& MachineHwid() {

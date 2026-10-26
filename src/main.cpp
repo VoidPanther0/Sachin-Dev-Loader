@@ -1,5 +1,5 @@
 #include "app.h"
-#include "resource.h"
+#include "Resources/resource.h"
 
 #include <dwmapi.h>
 #include <exception>

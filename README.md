@@ -1,18 +1,18 @@
 # Dear ImGui Template
 
-A single-screen Windows desktop UI starter built with C++20, Win32, DirectX 11,
-and Dear ImGui. It uses a frameless dark window and shows the common ImGui
-widgets on one screen: buttons, text fields, numeric inputs, sliders, checkboxes,
-radio buttons, combo boxes, color editing, progress, and tree nodes.
+A Windows desktop loader UI built with C++20, Win32, DirectX 11, and Dear ImGui.
+It uses a frameless dark window, a Supabase login screen, and a dashboard with
+the common ImGui widgets: buttons, text fields, numeric inputs, sliders,
+checkboxes, radio buttons, combo boxes, color editing, progress, and tree nodes.
 
-Use this repository as a starting point for your own tool, or click **Use this
-template** on GitHub to create a new repository. The UI is local and
-self-contained. There is no backend, network layer, or saved settings.
+Use this repository as a starting point for your own loader. The interface is
+local. Supabase is used only for authentication, build checks and the component
+list; no database key is embedded in the executable.
 
 ## Features
 
 - Frameless 1160x700 window with a custom title bar and rounded corners
-- One screen with a three-column widget gallery
+- Login screen separate from a three-column dashboard
 - Custom dark theme with a live accent color picker
 - Supabase username and password login before the main screen
 - Segoe UI fonts loaded from the system font directory
@@ -25,9 +25,8 @@ self-contained. There is no backend, network layer, or saved settings.
 The login screen checks credentials against the `sachin-dev-loader` Supabase
 project before it shows the main window.
 
-- The client sends `username` and `password` to Supabase Auth. The account email
-  is `<username>@loader.local`.
-- After a successful password check, the client calls `public.account_login`.
+- The client calls the `loader-auth` Edge Function. The function verifies the
+  password with Supabase Auth, then calls `public.account_login`.
   That function rejects banned accounts and accounts bound to another device.
   The first successful login binds the current hardware ID.
 - Session tokens stay in memory. The refresh token is used by a background
@@ -49,7 +48,53 @@ select public.admin_set_password('username', 'new-password');
 select public.admin_reset_hwid('username');
 ```
 
-The client uses a publishable key in `src/supabase_auth.cpp`. That key is safe to
+### Loading screens and server checks
+
+The loader shows two loading screens. Every step is decided by the server.
+
+1. **Startup** (when the exe opens): *Connecting to server*, *Checking loader
+   integrity*, *Downloading components*. The client sends its version and the
+   SHA-256 of its own exe to `loader-auth` (`action: "startup"`), which calls
+   `public.loader_startup()`. Maintenance mode, an old version or an unknown
+   exe hash stops the loader with a Retry button.
+2. **Login** (after the Login button): *Authenticating*, *Verifying account
+   and device*, *Running security checks*. After the password check,
+   `action: "bootstrap"` calls `public.loader_bootstrap()` with the user token.
+   It re-runs `account_status()` (ban, HWID) and the build checks. If any check
+   fails, the token is revoked and the form shows the reason. The dashboard
+   opens only after every step passes.
+
+Apply `supabase/migrations/20261026000000_loader_checks.sql`, then redeploy the
+function:
+
+```bash
+supabase db push
+supabase functions deploy loader-auth --no-verify-jwt
+```
+
+Manage the checks from the SQL editor:
+
+```sql
+-- Register a release build (hash from SHA256SUMS.txt), then enforce hashes.
+insert into public.loader_builds (exe_hash, version) values ('<sha256>', '1.0.0');
+update public.loader_config set enforce_build_hash = true;
+
+-- Block old clients or turn on maintenance.
+update public.loader_config set min_version = '1.0.1';
+update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM';
+
+-- Components shown to the client. requires_login = true hides one until login.
+insert into public.loader_components (name, version, description, requires_login)
+values ('Core', '1.0.0', 'Base runtime', false);
+
+-- Audit log of every startup and bootstrap check.
+select * from public.loader_check_log order by id desc limit 50;
+```
+
+Keep `enforce_build_hash = false` while developing: every rebuild changes the
+exe hash.
+
+The client uses a publishable key in `src/auth/supabase_auth.cpp`. That key is safe to
 ship. Never put the `service_role` key in the application.
 
 ## Requirements
@@ -84,21 +129,26 @@ msbuild ImGuiTemplate.sln /m /p:Configuration=Debug /p:Platform=x64
 ```
 src/
   main.cpp            Win32 window, Direct3D 11 device, frame loop
-  ui.cpp              Theme, layout, login screen, and widget gallery
-  supabase_auth.cpp   Supabase login, session refresh, HWID check
-  supabase_auth.h     Auth API used by ui.cpp
-  json_lite.h         Minimal JSON parser for Supabase responses
+  ui.cpp              Shared UI helpers and app lifecycle
+  ui.h                Shared UI API and screen entry points
+  screen/
+    login.cpp         Startup, login form, signing phases and Supabase auth
+    home.cpp          Main dashboard, title bar and footer
+  auth/
+    supabase_auth.cpp Supabase login, session refresh, HWID check
+    supabase_auth.h   Auth API used by the login screen
+    json_lite.h       Minimal JSON parser for Supabase responses
   app.h               Shared globals and app entry points
-  resource.h          Icon resource identifier
-  Resources/          app.ico, app.manifest, version.rc
+  Resources/          app.ico, app.manifest, version.rc, resource.h
   gui/                Vendored Dear ImGui
     backends/         Win32 + DirectX 11 platform/renderer backends
 ImGuiTemplate.sln
 ImGuiTemplate.vcxproj
 ```
 
-`main.cpp` owns the window and rendering. `ui.cpp` owns the interface.
-`app::Init`, `app::Render`, and `app::Shutdown` are the only UI entry points.
+`main.cpp` owns the window and rendering. `ui.cpp` implements the shared
+helpers and the app lifecycle, then dispatches to one screen at a time. Each
+screen lives in its own file under `src/screen`.
 
 ## Customize
 
@@ -107,10 +157,12 @@ ImGuiTemplate.vcxproj
 | Window title        | `app::kTitle` in `src/app.h`                       |
 | Window size         | `app::kWidth`, `app::kHeight` in `src/app.h`       |
 | Version label       | `app::kVersion` in `src/app.h`                     |
-| Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.cpp` |
-| Widget gallery      | `draw_inputs_card()`, `draw_selection_card()`, `draw_actions_card()` |
-| Demo state          | `AppState` and `reset_state()` in `src/ui.cpp`     |
-| Fonts and sizes     | `load_fonts()` in `src/ui.cpp`                     |
+| Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.h` |
+| Login screen        | `src/screen/login.cpp`                             |
+| Main dashboard      | `src/screen/home.cpp`                              |
+| Dashboard cards     | `draw_inputs_card()`, `draw_selection_card()`, `draw_actions_card()` in `src/screen/home.cpp` |
+| Demo state          | `ui::State` and `ui::reset_state()` in `src/ui.cpp` |
+| Fonts and sizes     | `ui::load_fonts()` in `src/ui.cpp`                 |
 | Executable icon     | `src/Resources/app.ico`                            |
 | Version resource    | `src/Resources/version.rc`                         |
 
