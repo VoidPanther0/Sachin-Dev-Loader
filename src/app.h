@@ -22,9 +22,9 @@ namespace app {
 
 constexpr float kWidth = 1160.0f;
 constexpr float kHeight = 700.0f;
-constexpr float kLoginWidth = 430.0f;
+constexpr float kLoginWidth = 460.0f;
 constexpr float kLoginHeight = 560.0f;
-constexpr wchar_t kTitle[] = L"Dear ImGui Template";
+constexpr wchar_t kTitle[] = L"Sachin Loader";
 constexpr char kVersion[] = "1.0.0";
 
 void Init();

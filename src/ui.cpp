@@ -1,6 +1,7 @@
 #include "app.h"
 #include "resource.h"
 #include "imgui_internal.h"
+#include "supabase_auth.h"
 
 #include <wincodec.h>
 
@@ -92,6 +93,8 @@ struct AppState
 };
 
 AppState state;
+
+void sign_out();
 
 ImVec4 accent_color()
 {
@@ -322,8 +325,8 @@ void draw_title_bar()
 	box(logo, accent_color(), 8.0f);
 	text_center(font.semibold, 13.0f, logo, ImVec4(0.04f, 0.05f, 0.08f, 1.0f), "IM");
 
-	text(font.semibold, 14.0f, ImVec2(62.0f, 15.0f), kText, "Dear ImGui Template");
-	text(font.caption, 11.0f, ImVec2(62.0f, 33.0f), kMuted, "Win32  |  DirectX 11  |  Single screen");
+	text(font.semibold, 14.0f, ImVec2(62.0f, 15.0f), kText, "Sachin Loader");
+	text(font.caption, 11.0f, ImVec2(62.0f, 33.0f), kMuted, "Win32  |  DirectX 11  |  Loader");
 
 	ImGui::SetCursorScreenPos(ImVec2(0.0f, 0.0f));
 	ImGui::InvisibleButton("##title_drag", ImVec2(app::kWidth - 100.0f, 60.0f));
@@ -343,6 +346,10 @@ void draw_header()
 	text(font.title, 28.0f, ImVec2(36.0f, 102.0f), kText, "Single-screen template");
 	text(font.body, 13.0f, ImVec2(36.0f, 142.0f), kMuted,
 		"All common ImGui widgets in one place. Keep what you need, delete the rest.");
+
+	ImGui::SetCursorScreenPos(ImVec2(830.0f, 104.0f));
+	if (secondary_button("Sign out", ImVec2(120.0f, 34.0f)))
+		sign_out();
 
 	ImGui::SetCursorScreenPos(ImVec2(976.0f, 104.0f));
 	if (secondary_button("Reset all", ImVec2(148.0f, 34.0f)))
@@ -562,6 +569,82 @@ struct LoginState
 
 LoginState login;
 ID3D11ShaderResourceView* logo_texture = nullptr;
+
+// Remembering a username only. Passwords and session tokens never touch disk.
+std::wstring login_settings_path(bool create_directory)
+{
+	wchar_t appdata[MAX_PATH] = {};
+	const DWORD length = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+	if (length == 0 || length >= MAX_PATH)
+		return std::wstring();
+
+	std::wstring directory = std::wstring(appdata) + L"\\SachinDevLoader";
+	if (create_directory)
+		CreateDirectoryW(directory.c_str(), nullptr);
+
+	return directory + L"\\settings.ini";
+}
+
+void load_login_settings()
+{
+	const std::wstring path = login_settings_path(false);
+	if (path.empty())
+		return;
+
+	wchar_t stored[64] = {};
+	GetPrivateProfileStringW(L"login", L"username", L"", stored, 64, path.c_str());
+	if (stored[0] == L'\0')
+		return;
+
+	char username[64] = {};
+	WideCharToMultiByte(CP_UTF8, 0, stored, -1, username, static_cast<int>(sizeof(username)), nullptr, nullptr);
+	if (username[0] == '\0')
+		return;
+
+	std::snprintf(login.username, sizeof(login.username), "%s", username);
+	login.remember = true;
+	login.focus_username = false;
+	login.focus_password = true;
+}
+
+void store_remembered_username(const char* username, bool remember)
+{
+	const std::wstring path = login_settings_path(true);
+	if (path.empty())
+		return;
+
+	if (!remember)
+	{
+		WritePrivateProfileStringW(L"login", L"username", nullptr, path.c_str());
+		return;
+	}
+
+	const int length = MultiByteToWideChar(CP_UTF8, 0, username, -1, nullptr, 0);
+	if (length <= 1)
+		return;
+
+	std::wstring wide(static_cast<std::size_t>(length), L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, username, -1, &wide[0], length);
+	wide.resize(static_cast<std::size_t>(length - 1));
+
+	WritePrivateProfileStringW(L"login", L"username", wide.c_str(), path.c_str());
+}
+
+void sign_out()
+{
+	sdauth::SignOut();
+	sdauth::ResetStatus();
+
+	login.logged_in = false;
+	login.message.clear();
+	login.message_is_error = false;
+	SecureZeroMemory(login.password, sizeof(login.password));
+	login.show_password = false;
+	login.focus_username = true;
+	login.focus_password = false;
+
+	ResizeWindow(static_cast<int>(app::kLoginWidth), static_cast<int>(app::kLoginHeight));
+}
 
 // Decodes the embedded Slogo.png (IDR_LOGO) with WIC, scales it to kLogoSize
 // and uploads it as a Direct3D 11 texture.
@@ -872,9 +955,15 @@ void draw_login_waves(float w, float h, float time)
 
 void submit_login()
 {
-	if (login.username[0] == '\0')
+	if (sdauth::LoginStatus() == sdauth::StatusWorking)
+		return;
+
+	const std::string username = sdauth::NormalizeUsername(login.username);
+	std::string error;
+
+	if (!sdauth::ValidateUsername(username, error))
 	{
-		login.message = "Enter your username or IP.";
+		login.message = error;
 		login.message_is_error = true;
 		login.focus_username = true;
 		return;
@@ -888,16 +977,41 @@ void submit_login()
 		return;
 	}
 
-	// Replace this block with your real credential check.
-	login.logged_in = true;
+	std::snprintf(login.username, sizeof(login.username), "%s", username.c_str());
 	login.message.clear();
-	SecureZeroMemory(login.password, sizeof(login.password));
-	state.status = std::string("Signed in as ") + login.username + ".";
-	ResizeWindow(static_cast<int>(app::kWidth), static_cast<int>(app::kHeight));
+	login.message_is_error = false;
+
+	sdauth::StartLogin(username, login.password);
 }
 
 void draw_login_screen()
 {
+	const int status = sdauth::LoginStatus();
+
+	if (status == sdauth::StatusOk && sdauth::HasSession())
+	{
+		const sdauth::Session session = sdauth::GetSession();
+		login.logged_in = true;
+		login.message.clear();
+		login.message_is_error = false;
+		SecureZeroMemory(login.password, sizeof(login.password));
+		login.show_password = false;
+		store_remembered_username(session.username.c_str(), login.remember);
+		state.status = std::string("Signed in as ") + session.username + ".";
+		sdauth::ResetStatus();
+		ResizeWindow(static_cast<int>(app::kWidth), static_cast<int>(app::kHeight));
+		return;
+	}
+
+	if (status == sdauth::StatusError)
+	{
+		login.message = sdauth::LoginMessage();
+		login.message_is_error = true;
+		sdauth::ResetStatus();
+	}
+
+	const bool working = sdauth::LoginStatus() == sdauth::StatusWorking;
+
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	const float w = app::kLoginWidth;
 	const float h = app::kLoginHeight;
@@ -947,7 +1061,7 @@ void draw_login_screen()
 	const bool focus_user = login.focus_username;
 	login.focus_username = false;
 	if (login_field("##username", rect(fx, 258.0f, fx + fw, 316.0f), login.username, sizeof(login.username),
-		"Username or IP", FieldIcon::User, nullptr, focus_user))
+		"Username", FieldIcon::User, nullptr, focus_user))
 		login.focus_password = true;
 
 	const bool focus_pass = login.focus_password;
@@ -955,23 +1069,27 @@ void draw_login_screen()
 	const bool enter = login_field("##password", rect(fx, 332.0f, fx + fw, 390.0f), login.password,
 		sizeof(login.password), "Password", FieldIcon::Lock, &login.show_password, focus_pass);
 
-	login_checkbox("##remember", ImVec2(fx, 410.0f), "Remember me", &login.remember);
+	login_checkbox("##remember", ImVec2(fx, 410.0f), "Remember username", &login.remember);
 
 	const char* forgot = "Forgot password?";
 	if (login_link("##forgot", ImVec2(fx + fw - text_width(font.body, 17.0f, forgot), 410.0f), forgot))
 	{
-		login.message = "Contact support to reset your password.";
+		login.message = "Ask the admin to reset your password.";
 		login.message_is_error = false;
 	}
 
-	if (!login.message.empty())
+	const std::string notice = working ? "Signing in..." : login.message;
+	const bool notice_is_error = !working && login.message_is_error;
+	if (!notice.empty())
 	{
-		const ImVec4 color = login.message_is_error ? kRed : kLoginSubtitle;
-		const float mw = text_width(font.body, 15.0f, login.message.c_str());
-		text(font.body, 15.0f, ImVec2(cx - mw * 0.5f, 446.0f), color, login.message.c_str());
+		const ImVec4 color = notice_is_error ? kRed : kLoginSubtitle;
+		const float mw = text_width(font.body, 15.0f, notice.c_str());
+		text(font.body, 15.0f, ImVec2(cx - mw * 0.5f, 446.0f), color, notice.c_str());
 	}
 
-	if (login_button("##login", rect(fx, 472.0f, fx + fw, 530.0f), "Login") || enter)
+	const bool submitted = login_button("##login", rect(fx, 472.0f, fx + fw, 530.0f),
+		working ? "Signing in..." : "Login");
+	if ((submitted || enter) && !working)
 		submit_login();
 
 	const char* footer = "Secure  -  Private  -  Fast";
@@ -1073,6 +1191,9 @@ void app::Init()
 	load_fonts();
 	apply_style();
 	load_logo();
+
+	sdauth::Init();
+	load_login_settings();
 }
 
 void app::Shutdown()
@@ -1086,6 +1207,22 @@ void app::Shutdown()
 
 void app::Render()
 {
+	sdauth::Tick();
+
+	if (login.logged_in && !sdauth::HasSession())
+	{
+		login.logged_in = false;
+		login.message = sdauth::LoginStatus() == sdauth::StatusError
+			? sdauth::LoginMessage()
+			: "Session ended. Sign in again.";
+		login.message_is_error = true;
+		sdauth::ResetStatus();
+		SecureZeroMemory(login.password, sizeof(login.password));
+		login.show_password = false;
+		login.focus_username = true;
+		ResizeWindow(static_cast<int>(app::kLoginWidth), static_cast<int>(app::kLoginHeight));
+	}
+
 	ImGuiIO& io = ImGui::GetIO();
 	state.fps += (io.Framerate - state.fps) * clampf(io.DeltaTime * 4.0f, 0.0f, 1.0f);
 

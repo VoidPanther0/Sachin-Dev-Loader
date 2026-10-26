@@ -14,10 +14,43 @@ self-contained. There is no backend, network layer, or saved settings.
 - Frameless 1160x700 window with a custom title bar and rounded corners
 - One screen with a three-column widget gallery
 - Custom dark theme with a live accent color picker
+- Supabase username and password login before the main screen
 - Segoe UI fonts loaded from the system font directory
 - Static C++ runtime, so the executable does not need the VC++ Redistributable
 - Embedded `asInvoker` application manifest, so the app never requests elevation
 - Dear ImGui 1.93.1 WIP vendored in `src/gui` (no submodules, no package manager)
+
+## Login
+
+The login screen checks credentials against the `sachin-dev-loader` Supabase
+project before it shows the main window.
+
+- The client sends `username` and `password` to Supabase Auth. The account email
+  is `<username>@loader.local`.
+- After a successful password check, the client calls `public.account_login`.
+  That function rejects banned accounts and accounts bound to another device.
+  The first successful login binds the current hardware ID.
+- Session tokens stay in memory. The refresh token is used by a background
+  heartbeat, and the account is re-checked every five minutes.
+- *Remember username* stores only the username in
+  `%APPDATA%\SachinDevLoader\settings.ini`. Passwords and tokens are never
+  written to disk.
+
+Create an account from the Supabase SQL editor:
+
+```sql
+select public.admin_create_account('username', 'password');
+```
+
+Reset a password or clear a hardware binding:
+
+```sql
+select public.admin_set_password('username', 'new-password');
+select public.admin_reset_hwid('username');
+```
+
+The client uses a publishable key in `src/supabase_auth.cpp`. That key is safe to
+ship. Never put the `service_role` key in the application.
 
 ## Requirements
 
@@ -51,7 +84,10 @@ msbuild ImGuiTemplate.sln /m /p:Configuration=Debug /p:Platform=x64
 ```
 src/
   main.cpp            Win32 window, Direct3D 11 device, frame loop
-  ui.cpp              Theme, layout, and the single-screen widget gallery
+  ui.cpp              Theme, layout, login screen, and widget gallery
+  supabase_auth.cpp   Supabase login, session refresh, HWID check
+  supabase_auth.h     Auth API used by ui.cpp
+  json_lite.h         Minimal JSON parser for Supabase responses
   app.h               Shared globals and app entry points
   resource.h          Icon resource identifier
   Resources/          app.ico, app.manifest, version.rc
