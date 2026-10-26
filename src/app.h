@@ -29,7 +29,7 @@ constexpr float kHeight = 700.0f;
 constexpr float kLoginWidth = 460.0f;
 constexpr float kLoginHeight = 560.0f;
 constexpr wchar_t kTitle[] = L"Sachin Loader";
-constexpr char kVersion[] = "0.2.1";
+constexpr char kVersion[] = "0.2.2";
 
 void Init();
 void Render();
