@@ -117,14 +117,15 @@ shows the progress, verifies `update_sha256`, then renames itself to `<exe>.old`
 (Windows allows renaming a running exe), writes the new exe under the original
 name and restarts it automatically. The form stays locked until the new build
 is running. On launch the new build deletes `<exe>.old` and shows
-`Updated to v<version>`. No temp-folder helper and no command-line switches are
-used.
+`Updated to v<version>`. Current builds do not use a temp-folder helper or
+command-line switches. The exe keeps the legacy `--apply-update` helper so 0.1
+builds that used that method can still jump to the current release.
 
 To publish an update:
 
 1. Bump `app::kVersion` in `src/app.h`, and the version strings in
    `src/Resources/version.rc`.
-2. Commit and push a matching tag, for example `v0.3.0`. The workflow checks
+2. Commit and push a matching tag, for example `v0.3.1`. The workflow checks
    that the tag and `app::kVersion` match, builds and signs the exe, creates the
    GitHub Release, then writes `latest_version`, `update_url`, `update_sha256`
    and `release_url` to `public.loader_config`.
@@ -143,18 +144,19 @@ must be updated by hand:
 
 ```sql
 update public.loader_config
-set latest_version = '0.3.0',
-    update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/download/v0.3.0/ImGuiTemplate.exe',
+set latest_version = '0.3.1',
+    update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/download/v0.3.1/ImGuiTemplate.exe',
     update_sha256 = '<sha256>',
-    release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/tag/v0.3.0'
+    release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/tag/v0.3.1'
 where id = 1;
 ```
 
 A failed download or hash check shows only Retry update. The user cannot reach
 the login form on an outdated build. Automatic updates work only when
-`update_url` is a direct exe link and `update_sha256` matches it. Clients from
-0.1 that predate this flow must download one build by hand; every later release
-updates itself.
+`update_url` is a direct exe link and `update_sha256` matches it. Very old 0.1
+builds that predate the automatic update flow must download one build by hand;
+builds that already have the updater, including later 0.1 builds, update
+themselves.
 
 
 ## Requirements
@@ -237,8 +239,8 @@ update the build commands in `.github/workflows/build-release.yml`. Also update
 Push a version tag:
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 The workflow builds `Release|x64` and uploads a two-file artifact:
