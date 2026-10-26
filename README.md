@@ -1,19 +1,21 @@
 # Dear ImGui Template
 
-A Windows desktop loader UI built with C++20, Win32, DirectX 11, and Dear ImGui.
-It uses a frameless dark window, a Supabase login screen, and a dashboard with
-the common ImGui widgets: buttons, text fields, numeric inputs, sliders,
-checkboxes, radio buttons, combo boxes, color editing, progress, and tree nodes.
+A Windows desktop loader built with C++20, Win32, DirectX 11, and Dear ImGui.
+It uses a frameless dark window, a Supabase login screen, and a blank home
+template with a sidebar, session data and a free content area.
 
 Use this repository as a starting point for your own loader. The interface is
-local. Supabase is used only for authentication, build checks and the component
-list; no database key is embedded in the executable.
+local. Supabase is used only for authentication, build checks, components and
+automatic updates; no database key is embedded in the executable.
 
 ## Features
 
 - Frameless 1160x700 window with a custom title bar and rounded corners
-- Login screen separate from a three-column dashboard
-- Custom dark theme with a live accent color picker
+- Login screen separate from the home shell
+- Blank home template: sidebar, session card, empty content area and footer
+- Automatic updates from the startup check: download, SHA-256 verify, replace
+  the running exe and restart
+- Custom dark theme with a shared accent color
 - Supabase username and password login before the main screen
 - Segoe UI fonts loaded from the system font directory
 - Static C++ runtime, so the executable does not need the VC++ Redistributable
@@ -56,12 +58,13 @@ The loader shows two loading screens. Every step is decided by the server.
    integrity*, *Downloading components*. The client sends its version and the
    SHA-256 of its own exe to `loader-auth` (`action: "startup"`), which calls
    `public.loader_startup()`. Maintenance mode, an old version or an unknown
-   exe hash stops the loader with a Retry button.
+   exe hash stops the loader with a Retry button. An older build updates
+   automatically; see [Automatic updates](#automatic-updates).
 2. **Login** (after the Login button): *Authenticating*, *Verifying account
    and device*, *Running security checks*. After the password check,
    `action: "bootstrap"` calls `public.loader_bootstrap()` with the user token.
    It re-runs `account_status()` (ban, HWID) and the build checks. If any check
-   fails, the token is revoked and the form shows the reason. The dashboard
+   fails, the token is revoked and the form shows the reason. The home screen
    opens only after every step passes.
 
 Apply `supabase/migrations/20261026000000_loader_checks.sql`, then redeploy the
@@ -76,32 +79,58 @@ Manage the checks from the SQL editor:
 
 ```sql
 -- Register a release build (hash from SHA256SUMS.txt), then enforce hashes.
-insert into public.loader_builds (exe_hash, version) values ('<sha256>', '0.1');
+insert into public.loader_builds (exe_hash, version) values ('<sha256>', '0.2');
 update public.loader_config set enforce_build_hash = true;
 
--- Block old clients or turn on maintenance. Rejected clients receive release_url.
-update public.loader_config set min_version = '0.1.1';
-update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM';
-update public.loader_config set release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest';
-
--- Automatic update: direct executable URL and its SHA-256.
+-- Publish a build. latest_version makes allowed clients update early;
+-- min_version is the hard cutoff that blocks very old clients.
 update public.loader_config
-set update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest/download/ImGuiTemplate.exe',
-    update_sha256 = '<sha256>';
+set latest_version = '0.2',
+    min_version = '0.2',
+    update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/download/v0.2/ImGuiTemplate.exe',
+    update_sha256 = '<sha256>',
+    release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest';
+
+-- Maintenance mode stops every client without offering an update.
+update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM';
 
 -- Components shown to the client. requires_login = true hides one until login.
 insert into public.loader_components (name, version, description, requires_login)
-values ('Core', '0.1', 'Base runtime', false);
+values ('Core', '0.2', 'Base runtime', false);
 
 -- Audit log of every startup and bootstrap check.
 select * from public.loader_check_log order by id desc limit 50;
 ```
 
-Keep `enforce_build_hash = false` while developing: every rebuild changes the
-exe hash.
+Keep `enforce_build_hash = false` while developing, or add every new hash to
+`public.loader_builds`. With enforcement on, an unregistered exe gets
+`bad_build` and cannot start.
 
 The client uses a publishable key in `src/auth/supabase_auth.cpp`. That key is safe to
 ship. Never put the `service_role` key in the application.
+
+## Automatic updates
+
+Every launch calls the startup check before the login form. When the server
+reports a newer `latest_version`, the loader downloads the exe from `update_url`
+without a button press, verifies `update_sha256`, then starts a small
+`--apply-update` helper. The helper waits for the loader to close, replaces the
+old exe and starts the new one. The user sees download progress and a restart
+message, not a browser page.
+
+To publish an update:
+
+1. Bump `app::kVersion` in `src/app.h`, and the version strings in
+   `src/Resources/version.rc`.
+2. Push a tag such as `v0.2`. The workflow builds, signs and uploads
+   `ImGuiTemplate.exe`, then writes `SHA256SUMS.txt`.
+3. Insert the new hash into `public.loader_builds`.
+4. Set `latest_version`, `update_url`, `update_sha256` and optionally
+   `min_version` in `public.loader_config`.
+
+A failed download or hash check shows Retry and Continue. Continue opens the
+installed build, and the next launch checks again. Automatic updates work only
+when `update_url` is a direct exe link and `update_sha256` matches it.
 
 ## Requirements
 
@@ -138,11 +167,11 @@ src/
   ui.cpp              Shared UI helpers and app lifecycle
   ui.h                Shared UI API and screen entry points
   screen/
-    login.cpp         Startup, login form, signing phases and Supabase auth
-    home.cpp          Main dashboard, title bar and footer
+    login.cpp         Startup, automatic update UI, login form and signing
+    home.cpp          Home shell: title bar, sidebar, pages and footer
   auth/
-    supabase_auth.cpp Supabase login, session refresh, HWID check
-    supabase_auth.h   Auth API used by the login screen
+    supabase_auth.cpp Supabase login, session refresh, HWID, build check, update
+    supabase_auth.h   Auth and update API used by the screens
     json_lite.h       Minimal JSON parser for Supabase responses
   app.h               Shared globals and app entry points
   Resources/          app.ico, app.manifest, version.rc, resource.h
@@ -165,9 +194,9 @@ screen lives in its own file under `src/screen`.
 | Version label       | `app::kVersion` in `src/app.h`                     |
 | Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.h` |
 | Login screen        | `src/screen/login.cpp`                             |
-| Main dashboard      | `src/screen/home.cpp`                              |
-| Dashboard cards     | `draw_inputs_card()`, `draw_selection_card()`, `draw_actions_card()` in `src/screen/home.cpp` |
-| Demo state          | `ui::State` and `ui::reset_state()` in `src/ui.cpp` |
+| Home pages          | `draw_home_page()`, `draw_library_page()`, `draw_settings_page()` in `src/screen/home.cpp` |
+| Sidebar and footer  | `draw_sidebar()`, `draw_footer()` in `src/screen/home.cpp` |
+| Shared page state   | `ui::State` in `src/ui.h`                          |
 | Fonts and sizes     | `ui::load_fonts()` in `src/ui.cpp`                 |
 | Executable icon     | `src/Resources/app.ico`                            |
 | Version resource    | `src/Resources/version.rc`                         |
@@ -183,18 +212,18 @@ update the build commands in `.github/workflows/build-release.yml`. Also update
 Push a version tag:
 
 ```bash
-git tag v0.1
-git push origin v0.1
+git tag v0.2
+git push origin v0.2
 ```
 
 The workflow builds `Release|x64` and uploads a two-file artifact:
 `ImGuiTemplate.exe` and `SHA256SUMS.txt`. The GitHub Release contains only
 `ImGuiTemplate.exe` so the direct download URL can update old clients.
 
-When the server rejects an old or modified build it returns `update_url` and
-`sha256`. The loader downloads the executable to `%TEMP%`, verifies the hash,
-and restarts through a small `--apply-update` helper that replaces the old file.
-No browser or release page is opened.
+The startup check returns `latest_version`, `update_url` and `sha256` on both
+success and rejection. The loader downloads the executable to `%TEMP%`, verifies
+the hash, and restarts through the `--apply-update` helper that replaces the old
+file. No browser or release page is opened.
 
 ## Code signing and antivirus false positives
 

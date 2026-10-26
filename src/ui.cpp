@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "auth/supabase_auth.h"
+#include "imgui_internal.h"
 
 #include <cfloat>
 #include <cstdio>
@@ -48,31 +49,6 @@ State state;
 ImVec4 accent_color()
 {
 	return ImVec4(state.accent[0], state.accent[1], state.accent[2], 1.0f);
-}
-
-void reset_state()
-{
-	std::snprintf(state.display_name, sizeof(state.display_name), "%s", "Dear ImGui Template");
-	std::snprintf(state.search, sizeof(state.search), "%s", "");
-	std::snprintf(state.notes, sizeof(state.notes), "%s",
-		"One screen, common widgets, no backend. Use this file as your starting point.");
-
-	state.retries = 3;
-	state.timeout = 15.0f;
-	state.opacity = 0.85f;
-	state.environment = 0;
-	state.quality = 2;
-	state.density = 0;
-	state.notifications = true;
-	state.restore_session = false;
-
-	state.accent[0] = 0.42f;
-	state.accent[1] = 0.56f;
-	state.accent[2] = 1.00f;
-
-	state.progress = 0.35f;
-	state.running = false;
-	state.status = "Defaults restored.";
 }
 
 Fonts font;
@@ -150,9 +126,28 @@ void box(const Rect& r, const ImVec4& fill, float rounding, const ImVec4* border
 		draw->AddRect(r.min, r.max, color_u32(*border), rounding, 0, 1.0f);
 }
 
+void gradient_box(const Rect& r, const ImVec4& from, const ImVec4& to, float rounding)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const int start = draw->VtxBuffer.Size;
+	draw->AddRectFilled(r.min, r.max, IM_COL32_WHITE, rounding);
+	ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
+		r.min, ImVec2(r.max.x, r.min.y), color_u32(from), color_u32(to));
+}
+
 void text(ImFont* f, float size, ImVec2 position, const ImVec4& color, const char* value)
 {
 	ImGui::GetWindowDrawList()->AddText(f, size, position, color_u32(color), value);
+}
+
+void gradient_text(ImFont* f, float size, ImVec2 position, const char* value, const ImVec4& from, const ImVec4& to)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const int start = draw->VtxBuffer.Size;
+	draw->AddText(f, size, position, IM_COL32_WHITE, value);
+	const float w = text_width(f, size, value);
+	ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
+		position, ImVec2(position.x + w, position.y), color_u32(from), color_u32(to));
 }
 
 float text_width(ImFont* f, float size, const char* value)

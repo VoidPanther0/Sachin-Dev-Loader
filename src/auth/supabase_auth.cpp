@@ -34,7 +34,7 @@ namespace {
 const wchar_t* kBaseUrl = L"https://xdtidxtkvrmurzogkxuv.supabase.co";
 const wchar_t* kAuthFunctionPath = L"/functions/v1/loader-auth";
 const char* kPublishableKey = "sb_publishable_xoEwnFlQuy-LLO5h8CRW_w_lS_uiEYr";
-const char* kUserAgent = "SachinDevLoader/0.1";
+const char* kUserAgent = "SachinDevLoader/0.2";
 
 const int kHeartbeatSeconds = 300;
 const std::size_t kMaxResponseBytes = 256 * 1024;
@@ -58,10 +58,64 @@ std::string g_startup_message;
 std::string g_update_url;
 std::string g_release_url;
 std::string g_update_sha;
+std::string g_latest_version;
+std::atomic<bool> g_update_available(false);
 std::atomic<bool> g_update_busy(false);
 std::atomic<int> g_update_status(static_cast<int>(sdauth::UpdateIdle));
 std::atomic<int> g_update_progress(0);
 std::string g_update_message;
+
+bool IsSha256Hex(const std::string& value);
+
+// Parses up to four dot-separated numbers, e.g. "1.2.10" -> {1,2,10,0}.
+bool ParseVersion(const std::string& text, int parts[4]) {
+	parts[0] = 0;
+	parts[1] = 0;
+	parts[2] = 0;
+	parts[3] = 0;
+
+	std::size_t index = 0;
+	int count = 0;
+	while (index < text.size() && count < 4) {
+		if (!std::isdigit(static_cast<unsigned char>(text[index])))
+			return false;
+
+		int value = 0;
+		int digits = 0;
+		while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index]))) {
+			value = value * 10 + (text[index] - '0');
+			++digits;
+			++index;
+			if (digits > 4)
+				return false;
+		}
+
+		parts[count++] = value;
+		if (index == text.size())
+			break;
+		if (text[index] != '.')
+			return false;
+		++index;
+		if (index == text.size())
+			return false;
+	}
+
+	return count > 0 && index == text.size();
+}
+
+// True when candidate is newer than current.
+bool VersionNewer(const std::string& candidate, const std::string& current) {
+	int a[4];
+	int b[4];
+	if (!ParseVersion(candidate, a) || !ParseVersion(current, b))
+		return false;
+
+	for (int i = 0; i < 4; ++i) {
+		if (a[i] != b[i])
+			return a[i] > b[i];
+	}
+	return false;
+}
 
 long long NowSeconds() {
 	return static_cast<long long>(std::time(nullptr));
@@ -89,16 +143,20 @@ void SetComponents(const std::vector<sdauth::Component>& components) {
 	g_components = components;
 }
 
-void SetUpdateInfo(const std::string& update_url, const std::string& release_url, const std::string& sha256) {
+void SetUpdateInfo(const std::string& update_url, const std::string& release_url, const std::string& sha256,
+	const std::string& latest_version) {
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
 		g_update_url = update_url;
 		g_release_url = release_url;
 		g_update_sha = sha256;
+		g_latest_version = latest_version;
 		g_update_message.clear();
 	}
 	g_update_progress.store(0);
 	g_update_status.store(static_cast<int>(sdauth::UpdateIdle));
+	g_update_available.store(!update_url.empty() && IsSha256Hex(sha256) &&
+		VersionNewer(latest_version, app::kVersion));
 }
 
 void SetUpdate(int status, int progress, const std::string& message) {
@@ -673,12 +731,14 @@ bool ParseFunctionResult(const std::string& body, std::string& error) {
 }
 
 bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error,
-	std::string& update_url, std::string& release_url, std::string& sha256) {
+	std::string& update_url, std::string& release_url, std::string& sha256, std::string& latest_version) {
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root)) {
 		error = "Bad server answer";
 		return false;
 	}
+
+	latest_version = root.get_string("latest_version");
 
 	if (!root.get_bool("ok", false)) {
 		error = root.get_string("error");
@@ -696,6 +756,13 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 				c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
 		return false;
 	}
+
+	update_url = root.get_string("update_url");
+	release_url = root.get_string("release_url");
+	sha256 = root.get_string("sha256");
+	if (sha256.size() == 64)
+		for (char& c : sha256)
+			c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
 
 	const jsonlite::Value* list = root.find("components");
 	if (list && list->is_array()) {
@@ -739,14 +806,15 @@ bool RunBootstrap(const std::string& access_token, const std::string& hwid, std:
 	std::string update_url;
 	std::string release_url;
 	std::string sha256;
-	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256)) {
+	std::string latest_version;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256, latest_version)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetUpdateInfo(update_url, release_url, sha256);
+		SetUpdateInfo(update_url, release_url, sha256, latest_version);
 		return false;
 	}
 
-	SetUpdateInfo("", "", "");
+	SetUpdateInfo(update_url, release_url, sha256, latest_version);
 	SetComponents(components);
 	return true;
 }
@@ -790,16 +858,17 @@ void RunStartup(std::string hwid) {
 	std::string update_url;
 	std::string release_url;
 	std::string sha256;
-	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256)) {
+	std::string latest_version;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256, latest_version)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetUpdateInfo(update_url, release_url, sha256);
+		SetUpdateInfo(update_url, release_url, sha256, latest_version);
 		SetStartup(sdauth::StatusError, error);
 		return;
 	}
 
 	g_startup_stage.store(sdauth::StartupComponents);
-	SetUpdateInfo("", "", "");
+	SetUpdateInfo(update_url, release_url, sha256, latest_version);
 	SetComponents(components);
 
 	g_startup_stage.store(sdauth::StartupDone);
@@ -1008,7 +1077,7 @@ void StartStartup() {
 
 	const std::string hwid = MachineHwid();
 	g_startup_stage.store(StartupConnecting);
-	SetUpdateInfo("", "", "");
+	SetUpdateInfo("", "", "", "");
 	SetStartup(StatusWorking, "Connecting...");
 
 	std::thread([hwid]() {
@@ -1043,6 +1112,15 @@ std::string StartupReleaseUrl() {
 std::string StartupSha256() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	return g_update_sha;
+}
+
+std::string StartupLatestVersion() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_latest_version;
+}
+
+bool StartupUpdateAvailable() {
+	return g_update_available.load();
 }
 
 void StartUpdate() {

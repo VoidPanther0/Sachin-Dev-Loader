@@ -18,7 +18,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //
 // startup runs before the login form (no account yet). bootstrap runs right
 // after login with the user token. Both reject maintenance, old versions and
-// executables whose SHA-256 is not a released build (see loader_builds).
+// executables whose SHA-256 is not a released build (see loader_builds), and
+// both return latest_version / update_url / sha256 so an allowed client can
+// update itself automatically before the login form.
 //
 // Deploy with verify_jwt = false: login and refresh carry no user JWT, and the
 // function authorises every request itself.
@@ -342,6 +344,7 @@ async function BuildCall(
 		const updateUrl = Text(data.update_url);
 		const releaseUrl = Text(data.release_url) || Text(data.url);
 		const sha256 = Text(data.sha256);
+		const latestVersion = Text(data.latest_version);
 		if (updateUrl || releaseUrl) {
 			return Json({
 				ok: false,
@@ -350,6 +353,7 @@ async function BuildCall(
 				update_url: updateUrl,
 				release_url: releaseUrl,
 				sha256,
+				latest_version: latestVersion,
 			});
 		}
 		return Fail(error);
@@ -359,6 +363,10 @@ async function BuildCall(
 		ok: true,
 		username: Text(data.username),
 		components: Array.isArray(data.components) ? data.components : [],
+		latest_version: Text(data.latest_version),
+		update_url: Text(data.update_url),
+		release_url: Text(data.release_url) || Text(data.url),
+		sha256: Text(data.sha256),
 	});
 }
 

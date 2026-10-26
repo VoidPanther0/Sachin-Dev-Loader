@@ -33,7 +33,8 @@ enum StartupStage {
 	StartupDone = 4,
 };
 
-// Automatic update state after the server rejects this build.
+// Automatic update state when the server rejects this build or reports a newer
+// latest_version on a successful check.
 enum UpdateState {
 	UpdateIdle = 0,
 	UpdateDownloading = 1,
@@ -80,6 +81,14 @@ std::string StartupMessage();
 std::string StartupDownloadUrl();
 std::string StartupReleaseUrl();
 std::string StartupSha256();
+
+// Newest version published on the server. Empty for servers that do not send
+// one. Unlike a rejected build, this allows an update before the login form.
+std::string StartupLatestVersion();
+
+// True when latest_version is newer than this executable and the server sent a
+// download URL with a SHA-256. The startup screen updates automatically.
+bool StartupUpdateAvailable();
 
 // Downloads the update, verifies its SHA-256 and restarts through a small
 // helper process. Safe to call again after a failure.

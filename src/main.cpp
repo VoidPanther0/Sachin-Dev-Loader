@@ -82,10 +82,19 @@ void ShowError(const wchar_t* message)
 bool StartProcess(const std::wstring& file)
 {
 	std::wstring command = L"\"" + file + L"\"";
+
+	std::wstring directory = file;
+	const std::size_t slash = directory.find_last_of(L"\\/");
+	if (slash != std::wstring::npos)
+		directory.resize(slash);
+	else
+		directory.clear();
+
 	STARTUPINFOW info{};
 	info.cb = sizeof(info);
 	PROCESS_INFORMATION process{};
-	if (!CreateProcessW(file.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &info, &process))
+	if (!CreateProcessW(file.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
+			directory.empty() ? nullptr : directory.c_str(), &info, &process))
 		return false;
 
 	CloseHandle(process.hThread);
@@ -128,7 +137,12 @@ int RunUpdateHelper(const std::wstring& target, DWORD old_pid)
 	}
 
 	if (copied && StartProcess(target))
+	{
+		// The helper runs from %TEMP%. Ask Windows to remove it at the next
+		// reboot; a running executable cannot delete itself right now.
+		MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
 		return 0;
+	}
 
 	// The old file could not be replaced. Run the downloaded copy instead.
 	if (StartProcess(self))

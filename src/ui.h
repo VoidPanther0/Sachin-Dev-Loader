@@ -38,32 +38,15 @@ ImU32 color_u32(const ImVec4& color);
 
 struct State
 {
-	char display_name[64] = "Dear ImGui Template";
-	char search[64] = "";
-	char notes[256] = "One screen, common widgets, no backend. Use this file as your starting point.";
-
-	int retries = 3;
-	float timeout = 15.0f;
-	float opacity = 0.85f;
-
-	int environment = 0;
-	int quality = 2;
-	int density = 0;
-	bool notifications = true;
-	bool restore_session = false;
-
+	int page = 0;            // 0 = Home, 1 = Library, 2 = Settings
 	float accent[3] = { 0.42f, 0.56f, 1.00f };
-	float progress = 0.35f;
-	bool running = false;
-
 	float fps = 0.0f;
-	std::string status = "Ready. Edit src/screen/home.cpp to start.";
+	std::string status = "Ready.";
 };
 
 extern State state;
 
 ImVec4 accent_color();
-void reset_state();
 
 // ------------------------------------------------------------------ fonts ----
 
@@ -93,7 +76,9 @@ float height(const Rect& r);
 ImVec2 center(const Rect& r);
 
 void box(const Rect& r, const ImVec4& fill, float rounding = 10.0f, const ImVec4* border = nullptr);
+void gradient_box(const Rect& r, const ImVec4& from, const ImVec4& to, float rounding = 10.0f);
 void text(ImFont* f, float size, ImVec2 position, const ImVec4& color, const char* value);
+void gradient_text(ImFont* f, float size, ImVec2 position, const char* value, const ImVec4& from, const ImVec4& to);
 float text_width(ImFont* f, float size, const char* value);
 void text_center(ImFont* f, float size, const Rect& r, const ImVec4& color, const char* value);
 void label(const char* value, float x, float y);
