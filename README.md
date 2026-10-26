@@ -113,12 +113,13 @@ ship. Never put the `service_role` key in the application.
 
 Every launch calls the startup check before the login form. When the server
 reports a newer `latest_version`, the startup screen finishes its checks (about
-6 seconds) and shows an Update button. Update downloads the exe from
-`update_url`, verifies `update_sha256`, then starts a small `--apply-update`
-helper. The loader shows `Restarting...` and closes by itself. The helper waits for the loader to close, replaces the
-old exe and starts the new one with `--updated`. The first screen then shows
-`Updated to v<version>` for a few seconds. The user sees download progress and a
-restart message, not a browser page.
+6 seconds) and shows an Update button. The form stays locked until the update
+is installed. Update downloads the exe from `update_url` and verifies
+`update_sha256`. The loader then renames itself to `<exe>.old` (Windows allows
+renaming a running exe), writes the new exe under the original name and shows
+Restart launcher. Restart starts the new exe with no arguments. On launch the
+new build deletes `<exe>.old` and shows `Updated to v<version>`. No temp-folder
+helper and no command-line switches are used.
 
 To publish an update:
 
@@ -130,8 +131,8 @@ To publish an update:
 4. Set `latest_version`, `update_url`, `update_sha256` and optionally
    `min_version` in `public.loader_config`.
 
-A failed download or hash check shows Retry and Continue. Continue opens the
-installed build, and the next launch checks again. Automatic updates work only
+A failed download or hash check shows only Retry update. The user cannot reach
+the login form on an outdated build. Automatic updates work only
 when `update_url` is a direct exe link and `update_sha256` matches it.
 
 ## Requirements
@@ -223,9 +224,9 @@ The workflow builds `Release|x64` and uploads a two-file artifact:
 `ImGuiTemplate.exe` so the direct download URL can update old clients.
 
 The startup check returns `latest_version`, `update_url` and `sha256` on both
-success and rejection. The loader downloads the executable to `%TEMP%`, verifies
-the hash, and restarts through the `--apply-update` helper that replaces the old
-file. No browser or release page is opened.
+success and rejection. The loader downloads the executable, verifies the hash
+and swaps it in place of the running exe (the old one becomes `<exe>.old`).
+No browser or release page is opened.
 
 ## Code signing and antivirus false positives
 

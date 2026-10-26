@@ -64,6 +64,8 @@ std::atomic<bool> g_update_busy(false);
 std::atomic<int> g_update_status(static_cast<int>(sdauth::UpdateIdle));
 std::atomic<int> g_update_progress(0);
 std::string g_update_message;
+// Path of the swapped loader, started again by RestartLoader().
+std::wstring g_update_target;
 
 bool IsSha256Hex(const std::string& value);
 
@@ -614,21 +616,32 @@ bool WriteAllBytes(const std::wstring& path, const std::vector<unsigned char>& b
 	return ok;
 }
 
-bool LaunchSelfWithUpdate(const std::wstring& helper, const std::wstring& target) {
-	std::wstring command = L"\"" + helper + L"\" --apply-update \"" + target + L"\" " +
-		std::to_wstring(GetCurrentProcessId());
+// Replaces the loader file in place. Windows allows renaming a running exe, so
+// the old build moves to <exe>.old and the new one takes its name. No helper
+// process and no command-line switches are involved; the next launch deletes
+// <exe>.old.
+bool SwapExecutable(const std::wstring& target, const std::vector<unsigned char>& bytes, std::string& error) {
+	const std::wstring new_file = target + L".new";
+	const std::wstring old_file = target + L".old";
 
-	STARTUPINFOW info;
-	ZeroMemory(&info, sizeof(info));
-	info.cb = sizeof(info);
-	PROCESS_INFORMATION process;
-	ZeroMemory(&process, sizeof(process));
-
-	if (!CreateProcessW(helper.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &info, &process))
+	DeleteFileW(old_file.c_str());
+	if (!WriteAllBytes(new_file, bytes)) {
+		error = "Cannot save the update next to the loader";
 		return false;
+	}
 
-	CloseHandle(process.hThread);
-	CloseHandle(process.hProcess);
+	if (!MoveFileExW(target.c_str(), old_file.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+		DeleteFileW(new_file.c_str());
+		error = "Cannot replace the loader file";
+		return false;
+	}
+
+	if (!MoveFileExW(new_file.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+		MoveFileExW(old_file.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING);
+		DeleteFileW(new_file.c_str());
+		error = "Cannot install the update";
+		return false;
+	}
 	return true;
 }
 
@@ -661,36 +674,25 @@ void RunUpdate(std::string url, std::string expected_sha) {
 		return;
 	}
 
-	wchar_t temp_path[MAX_PATH] = {};
-	const DWORD temp_length = GetTempPathW(MAX_PATH, temp_path);
-	if (temp_length == 0 || temp_length >= MAX_PATH) {
-		SetUpdate(sdauth::UpdateFailed, 0, "Cannot find the temporary folder");
-		return;
-	}
-
-	std::wstring update_file = std::wstring(temp_path, temp_length) +
-		L"SachinDevLoader-update-" + std::to_wstring(GetCurrentProcessId()) + L".exe";
-	if (!WriteAllBytes(update_file, bytes)) {
-		SetUpdate(sdauth::UpdateFailed, 0, "Cannot save the update file");
-		return;
-	}
-
 	wchar_t target_path[MAX_PATH] = {};
 	const DWORD target_length = GetModuleFileNameW(nullptr, target_path, MAX_PATH);
 	if (target_length == 0 || target_length >= MAX_PATH) {
-		DeleteFileW(update_file.c_str());
 		SetUpdate(sdauth::UpdateFailed, 0, "Cannot find the loader file");
 		return;
 	}
 
-	SetUpdate(sdauth::UpdateDownloading, 99, "Restarting...");
-	if (!LaunchSelfWithUpdate(update_file, target_path)) {
-		DeleteFileW(update_file.c_str());
-		SetUpdate(sdauth::UpdateFailed, 0, "Cannot start the update");
+	SetUpdate(sdauth::UpdateDownloading, 98, "Installing update...");
+	const std::wstring target(target_path, target_length);
+	if (!SwapExecutable(target, bytes, error)) {
+		SetUpdate(sdauth::UpdateFailed, 0, error);
 		return;
 	}
 
-	SetUpdate(sdauth::UpdateRestarting, 100, "Restarting...");
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_update_target = target;
+	}
+	SetUpdate(sdauth::UpdateReady, 100, "Update installed. Restart the launcher.");
 }
 
 // ------------------------------------------------------------------ login ----
@@ -1156,6 +1158,38 @@ void StartUpdate() {
 		RunUpdate(url, sha);
 		g_update_busy.store(false);
 	}).detach();
+}
+
+bool RestartLoader() {
+	std::wstring target;
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		target = g_update_target;
+	}
+	if (target.empty())
+		return false;
+
+	std::wstring directory = target;
+	const std::size_t slash = directory.find_last_of(L"\\/");
+	if (slash != std::wstring::npos)
+		directory.resize(slash);
+	else
+		directory.clear();
+
+	std::wstring command = L"\"" + target + L"\"";
+	STARTUPINFOW info;
+	ZeroMemory(&info, sizeof(info));
+	info.cb = sizeof(info);
+	PROCESS_INFORMATION process;
+	ZeroMemory(&process, sizeof(process));
+
+	if (!CreateProcessW(target.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
+			directory.empty() ? nullptr : directory.c_str(), &info, &process))
+		return false;
+
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+	return true;
 }
 
 int UpdateStatus() {

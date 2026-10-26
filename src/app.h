@@ -13,8 +13,8 @@
 
 inline HWND g_hwnd = nullptr;
 
-// Set when the update helper starts this build with --updated, so the first
-// screen can confirm the new version.
+// Set when an update left the previous build as <exe>.old, so the first screen
+// can confirm the new version.
 inline bool g_updated = false;
 
 inline ID3D11Device* g_pd3dDevice = nullptr;

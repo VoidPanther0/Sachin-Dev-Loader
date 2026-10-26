@@ -79,82 +79,30 @@ void ShowError(const wchar_t* message)
 	MessageBoxW(nullptr, message, app::kTitle, MB_ICONERROR | MB_OK);
 }
 
-bool StartProcess(const std::wstring& file, const wchar_t* arguments = nullptr)
+// After an update the previous build is left as <exe>.old (a running exe can
+// be renamed but not deleted). Remove it and report that this run is the
+// updated build. The old process may still be closing, so retry briefly.
+bool CleanupPreviousBuild()
 {
-	std::wstring command = L"\"" + file + L"\"";
-	if (arguments && arguments[0] != L'\0')
-		command += std::wstring(L" ") + arguments;
-
-	std::wstring directory = file;
-	const std::size_t slash = directory.find_last_of(L"\\/");
-	if (slash != std::wstring::npos)
-		directory.resize(slash);
-	else
-		directory.clear();
-
-	STARTUPINFOW info{};
-	info.cb = sizeof(info);
-	PROCESS_INFORMATION process{};
-	if (!CreateProcessW(file.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
-			directory.empty() ? nullptr : directory.c_str(), &info, &process))
+	wchar_t self[MAX_PATH] = {};
+	const DWORD length = GetModuleFileNameW(nullptr, self, MAX_PATH);
+	if (length == 0 || length >= MAX_PATH)
 		return false;
 
-	CloseHandle(process.hThread);
-	CloseHandle(process.hProcess);
+	const std::wstring target(self, length);
+	DeleteFileW((target + L".new").c_str());
+
+	const std::wstring old_file = target + L".old";
+	if (GetFileAttributesW(old_file.c_str()) == INVALID_FILE_ATTRIBUTES)
+		return false;
+
+	for (int attempt = 0; attempt < 20; ++attempt)
+	{
+		if (DeleteFileW(old_file.c_str()) || GetLastError() == ERROR_FILE_NOT_FOUND)
+			break;
+		Sleep(150);
+	}
 	return true;
-}
-
-// --apply-update <target> <pid>
-// The downloaded build runs as a helper: wait for the old loader to exit, copy
-// itself over the old file, then start the updated loader.
-int RunUpdateHelper(const std::wstring& target, DWORD old_pid)
-{
-	if (old_pid != 0)
-	{
-		HANDLE old_process = OpenProcess(SYNCHRONIZE, FALSE, old_pid);
-		if (old_process)
-		{
-			WaitForSingleObject(old_process, 60000);
-			CloseHandle(old_process);
-		}
-		else
-		{
-			Sleep(1500);
-		}
-	}
-
-	wchar_t self[MAX_PATH] = {};
-	if (GetModuleFileNameW(nullptr, self, MAX_PATH) == 0)
-	{
-		ShowError(L"Could not find the downloaded update.");
-		return 1;
-	}
-
-	bool copied = false;
-	for (int attempt = 0; attempt < 60 && !copied; ++attempt)
-	{
-		copied = CopyFileW(self, target.c_str(), FALSE) != FALSE;
-		if (!copied)
-			Sleep(500);
-	}
-
-	if (copied && StartProcess(target, L"--updated"))
-	{
-		// The helper runs from %TEMP%. Ask Windows to remove it at the next
-		// reboot; a running executable cannot delete itself right now.
-		MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
-		return 0;
-	}
-
-	// The old file could not be replaced. Run the downloaded copy instead.
-	if (StartProcess(self, L"--updated"))
-	{
-		MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
-		return 0;
-	}
-
-	ShowError(L"The update was downloaded but could not be started.");
-	return 1;
 }
 
 } // namespace
@@ -214,24 +162,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 	(void)command_line;
 	(void)show_command;
 
-	int argument_count = 0;
-	LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
-	if (arguments && argument_count >= 4 && std::wstring(arguments[1]) == L"--apply-update")
-	{
-		const std::wstring target = arguments[2];
-		const DWORD old_pid = static_cast<DWORD>(wcstoul(arguments[3], nullptr, 10));
-		LocalFree(arguments);
-		return RunUpdateHelper(target, old_pid);
-	}
-	if (arguments)
-	{
-		for (int i = 1; i < argument_count; ++i)
-		{
-			if (std::wstring(arguments[i]) == L"--updated")
-				g_updated = true;
-		}
-		LocalFree(arguments);
-	}
+	g_updated = CleanupPreviousBuild();
 
 	try
 	{

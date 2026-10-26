@@ -49,9 +49,6 @@ constexpr double kStepSeconds = 0.55;
 // The startup check is paced slower so the whole screen takes about 6 seconds.
 constexpr double kStartupStepSeconds = 1.8;
 constexpr double kDoneHoldSeconds = 0.35;
-// "Restarting..." stays visible this long before the loader closes for the
-// update helper.
-constexpr double kRestartHoldSeconds = 1.5;
 
 const char* const kStartupSteps[] = {
 	"Connecting to server...",
@@ -74,8 +71,7 @@ struct LoginState
 	bool logged_in = false;
 	bool focus_username = true;
 	bool focus_password = false;
-	bool skip_update = false;
-	double restart_time = -1.0;
+	bool restart_failed = false;
 	std::string update_notice;
 	double update_notice_time = -1.0;
 	std::string message;
@@ -724,11 +720,12 @@ void retry_startup()
 {
 	login.anim = LoadingAnim();
 	login.anim.step_time = ImGui::GetTime();
-	login.skip_update = false;
 	sdauth::StartStartup();
 }
 
-void draw_update_panel(bool startup_ok, bool update_failed, bool restarting, int progress)
+// Update download, then a Restart launcher prompt. There is no way past this
+// panel without updating, so the form opens only on the new build.
+void draw_update_panel(bool update_failed, bool installed, int progress)
 {
 	const float w = app::kLoginWidth;
 	const float fx = 60.0f;
@@ -736,11 +733,11 @@ void draw_update_panel(bool startup_ok, bool update_failed, bool restarting, int
 	const std::string version = sdauth::StartupLatestVersion();
 
 	pill(rect(fx, 250.0f, fx + 148.0f, 272.0f),
-		update_failed ? "UPDATE FAILED" : "UPDATE AVAILABLE",
+		update_failed ? "UPDATE FAILED" : installed ? "UPDATE READY" : "UPDATE AVAILABLE",
 		update_failed ? kRed : kLoginSubtitle);
 
 	text(font.title, 26.0f, ImVec2(fx, 292.0f), kText,
-		update_failed ? "Update could not finish" : "Updating loader");
+		update_failed ? "Update could not finish" : installed ? "Update installed" : "Updating loader");
 
 	if (!version.empty())
 	{
@@ -753,7 +750,7 @@ void draw_update_panel(bool startup_ok, bool update_failed, bool restarting, int
 		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is ready.");
 	}
 	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		restarting ? "Update installed. Restarting the loader..." : "Downloading now. It restarts by itself when done.");
+		installed ? "Restart the launcher to use the new version." : "Downloading now. Please wait.");
 
 	const Rect track = rect(fx, 410.0f, fx + fw, 418.0f);
 	box(track, kLoginField, 4.0f);
@@ -770,40 +767,33 @@ void draw_update_panel(bool startup_ok, bool update_failed, bool restarting, int
 	text(font.body, 15.0f, ImVec2(track.max.x - pw, 426.0f), kLoginHint, percent);
 
 	std::string caption = sdauth::UpdateMessage();
+	if (login.restart_failed)
+		caption = "Cannot restart. Close and open the loader again.";
 	if (caption.empty())
 		caption = update_failed ? "The update stopped. Try again." : "Downloading update...";
-	text(font.body, 15.0f, ImVec2(track.min.x, 426.0f), update_failed ? kRed : kLoginSubtitle, caption.c_str());
+	const bool caption_is_error = update_failed || login.restart_failed;
+	text(font.body, 15.0f, ImVec2(track.min.x, 426.0f), caption_is_error ? kRed : kLoginSubtitle, caption.c_str());
 
-	if (!update_failed)
+	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
+	if (update_failed)
 	{
-		busy_button(rect(fx, 472.0f, fx + fw, 530.0f), restarting ? "Restarting..." : "Please wait");
+		if (login_button("##update_retry", button, "Retry update"))
+			sdauth::StartUpdate();
 		return;
 	}
 
-	// Failed: retry the download, then either continue the installed build or
-	// repeat the server check when that build is blocked.
-	const float gap = 12.0f;
-	const Rect retry = rect(fx, 472.0f, fx + (fw - gap) * 0.55f, 530.0f);
-	const Rect second = rect(retry.max.x + gap, 472.0f, fx + fw, 530.0f);
-
-	if (login_button("##update_retry", retry, "Retry update"))
-		sdauth::StartUpdate();
-
-	if (startup_ok)
+	if (!installed)
 	{
-		if (login_button("##update_skip", second, "Continue"))
-		{
-			login.skip_update = true;
-			login.phase = Phase::Form;
-			login.anim = LoadingAnim();
-			login.message = "Running the installed build. It can update on the next launch.";
-			login.message_is_error = false;
-		}
+		busy_button(button, "Please wait");
 		return;
 	}
 
-	if (login_button("##update_recheck", second, "Retry check"))
-		retry_startup();
+	if (login_button("##update_restart", button, "Restart launcher"))
+	{
+		login.restart_failed = !sdauth::RestartLoader();
+		if (!login.restart_failed)
+			PostQuitMessage(0);
+	}
 }
 
 void draw_startup()
@@ -815,25 +805,14 @@ void draw_startup()
 	const bool ready = status == sdauth::StatusOk;
 	const std::string update_url = sdauth::StartupDownloadUrl();
 	const int update_status = sdauth::UpdateStatus();
-	const bool show_update = !login.skip_update && !update_url.empty() &&
+	const bool show_update = !update_url.empty() &&
 		(failed || sdauth::StartupUpdateAvailable());
 	const bool update_failed = show_update && update_status == sdauth::UpdateFailed;
 
-	// After the user pressed Update: download progress, then restart without
-	// another click once the helper is running.
+	// After the user pressed Update: download progress, then Restart launcher.
 	if (show_update && update_status != sdauth::UpdateIdle)
 	{
-		draw_update_panel(status == sdauth::StatusOk, update_failed,
-			update_status == sdauth::UpdateRestarting, sdauth::UpdateProgress());
-
-		if (update_status == sdauth::UpdateRestarting)
-		{
-			const double now = ImGui::GetTime();
-			if (login.restart_time < 0.0)
-				login.restart_time = now;
-			else if (now - login.restart_time >= kRestartHoldSeconds)
-				PostQuitMessage(0);
-		}
+		draw_update_panel(update_failed, update_status == sdauth::UpdateReady, sdauth::UpdateProgress());
 		return;
 	}
 
@@ -866,7 +845,7 @@ void draw_startup()
 	{
 		if (login_button("##startup_update", button, "Update"))
 		{
-			login.restart_time = -1.0;
+			login.restart_failed = false;
 			sdauth::StartUpdate();
 		}
 		return;

@@ -38,7 +38,7 @@ enum StartupStage {
 enum UpdateState {
 	UpdateIdle = 0,
 	UpdateDownloading = 1,
-	UpdateRestarting = 2,
+	UpdateReady = 2, // new exe installed; waiting for Restart launcher
 	UpdateFailed = 3,
 };
 
@@ -87,12 +87,16 @@ std::string StartupSha256();
 std::string StartupLatestVersion();
 
 // True when latest_version is newer than this executable and the server sent a
-// download URL with a SHA-256. The startup screen updates automatically.
+// download URL with a SHA-256. The startup screen then shows an Update button.
 bool StartupUpdateAvailable();
 
-// Downloads the update, verifies its SHA-256 and restarts through a small
-// helper process. Safe to call again after a failure.
+// Downloads the update, verifies its SHA-256 and swaps it in place of the
+// running exe (the old one becomes <exe>.old). Safe to call again after a
+// failure.
 void StartUpdate();
+
+// Starts the swapped exe after UpdateReady. The caller then quits.
+bool RestartLoader();
 int UpdateStatus();
 int UpdateProgress();
 std::string UpdateMessage();
