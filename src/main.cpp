@@ -408,7 +408,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 	}
 	catch (const std::exception& error)
 	{
-		MessageBoxA(nullptr, error.what(), "Dear ImGui Template", MB_ICONERROR | MB_OK);
+		MessageBoxA(nullptr, error.what(), "Sachin Loader", MB_ICONERROR | MB_OK);
 		return 1;
 	}
 	catch (...)

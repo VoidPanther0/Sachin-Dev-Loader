@@ -7,10 +7,11 @@
 //   account_login() to bind the HWID, check bans and record the login.
 //   At startup a "startup" call sends the client version and the SHA-256 of
 //   the running executable; loader_startup() rejects old or modified builds
-//   and returns the component list. After the password check a "bootstrap"
-//   call repeats those checks with the user token (loader_bootstrap()).
-// No password grant or service key is used by the client itself.
-// Network calls run on worker threads; the UI only polls status.
+//   and returns the component list plus the latest release metadata. After the
+//   password check a "bootstrap" call repeats those checks with the user token
+//   (loader_bootstrap()). No password grant or service key is used by the
+//   client itself. Network calls run on worker threads; the UI only polls
+//   status.
 
 #include <string>
 #include <vector>
@@ -27,10 +28,11 @@ enum Status {
 // Startup progress (first loading screen, before the login form).
 enum StartupStage {
 	StartupNone = 0,
-	StartupConnecting = 1, // reach the loader-auth function
-	StartupIntegrity = 2,  // client version, executable hash, maintenance
-	StartupComponents = 3, // component list released by the server
-	StartupDone = 4,
+	StartupConnecting = 1,   // reach the loader-auth function
+	StartupIntegrity = 2,    // client version, executable hash, maintenance
+	StartupUpdateCheck = 3,  // latest release metadata
+	StartupComponents = 4,   // component list released by the server
+	StartupDone = 5,
 };
 
 // Automatic update state when the server rejects this build or reports a newer
@@ -38,8 +40,9 @@ enum StartupStage {
 enum UpdateState {
 	UpdateIdle = 0,
 	UpdateDownloading = 1,
-	UpdateReady = 2, // new exe installed; waiting for Restart launcher
+	UpdateReady = 2,   // new exe installed; waiting for the restart countdown
 	UpdateFailed = 3,
+	UpdateSkipped = 4, // server points at the running build; continue startup
 };
 
 // Login progress (second loading screen, after the Login button).
@@ -90,9 +93,16 @@ std::string StartupLatestVersion();
 // download URL with a SHA-256. The startup screen then updates without a click.
 bool StartupUpdateAvailable();
 
+// True when the server rejected this build as outdated or modified, so the
+// update must finish before the login form opens.
+bool StartupUpdateRequired();
+
 // Downloads the update, verifies its SHA-256, swaps it in place of the running
 // exe (the old one becomes <exe>.old) and restarts automatically.
 void StartUpdate();
+
+// Gives up on an optional update after repeated failures so startup can finish.
+void SkipUpdate();
 
 // Starts the swapped exe after UpdateReady. The caller then quits.
 bool RestartLoader();
@@ -130,7 +140,7 @@ void SignOut();
 // Stable machine fingerprint used for account binding.
 const std::string& MachineHwid();
 
-// Usernames are lowercase letters, digits and underscore, 3 to 20 characters.
+// Usernames are lowercase letters, digits and underscore, 2 to 20 characters.
 bool ValidateUsername(const std::string& username, std::string& error);
 
 // Trims whitespace and lowercases a username before validation.

@@ -103,7 +103,7 @@ void draw_title_bar()
 	text_center(font.semibold, 17.0f, logo, kText, "S");
 
 	text(font.semibold, 15.0f, ImVec2(60.0f, 14.0f), kText, "Sachin Loader");
-	text(font.caption, 10.0f, ImVec2(60.0f, 34.0f), kMuted, "Template home screen");
+	text(font.caption, 10.0f, ImVec2(60.0f, 34.0f), kMuted, "Apps and games, one place");
 
 	ImGui::SetCursorScreenPos(ImVec2(0.0f, 0.0f));
 	ImGui::InvisibleButton("##title_drag", ImVec2(app::kWidth - 96.0f, kTitleHeight));
@@ -247,16 +247,19 @@ void draw_hero()
 	text(font.title, 30.0f, ImVec2(hero.min.x + 32.0f, hero.min.y + 46.0f), kText, greeting);
 
 	text(font.body, 14.0f, ImVec2(hero.min.x + 32.0f, hero.min.y + 92.0f), kMuted,
-		"Your loader is ready. This is the blank template home screen.");
+		"Your loader is ready. Launch your apps and games from one place.");
 
 	char build[32];
 	std::snprintf(build, sizeof(build), "BUILD %s", app::kVersion);
 	pill(rect(hero.min.x + 32.0f, hero.min.y + 126.0f, hero.min.x + 112.0f, hero.min.y + 148.0f), build, kGreen);
 
-	const bool update_ready = sdauth::StartupUpdateAvailable() || sdauth::UpdateStatus() == sdauth::UpdateFailed;
-	pill(rect(hero.min.x + 124.0f, hero.min.y + 126.0f, hero.min.x + 124.0f + (update_ready ? 118.0f : 140.0f),
-		hero.min.y + 148.0f), update_ready ? "UPDATE READY" : "AUTO UPDATE ON",
-		update_ready ? kBlue : accent_color());
+	const bool update_available = sdauth::StartupUpdateAvailable();
+	const bool update_retrying = sdauth::UpdateStatus() == sdauth::UpdateFailed;
+	const char* update_label = update_available ? "UPDATE READY"
+		: (update_retrying ? "UPDATE RETRY" : "AUTO UPDATE ON");
+	pill(rect(hero.min.x + 124.0f, hero.min.y + 126.0f,
+		hero.min.x + 124.0f + (update_available || update_retrying ? 118.0f : 140.0f),
+		hero.min.y + 148.0f), update_label, update_available ? kBlue : accent_color());
 
 	ImGui::SetCursorScreenPos(ImVec2(hero.max.x - 164.0f, hero.min.y + 126.0f));
 	if (secondary_button("Open library", ImVec2(132.0f, 32.0f)))
@@ -291,11 +294,11 @@ void draw_home_page()
 	box(content, kCard, 14.0f, &kBorder);
 	text(font.semibold, 17.0f, ImVec2(content.min.x + 24.0f, content.min.y + 20.0f), kText, "Content");
 	text(font.caption, 11.0f, ImVec2(content.min.x + 24.0f, content.min.y + 46.0f), kMuted,
-		"Your empty workspace. Add apps, games or tools here.");
+		"Your workspace. Released apps, games and tools appear here.");
 	divider(content.min.x + 24.0f, content.max.x - 24.0f, content.min.y + 72.0f);
 
 	draw_empty_state(rect(content.min.x + 24.0f, content.min.y + 90.0f, content.max.x - 24.0f, content.max.y - 22.0f),
-		"Nothing here yet", "Start in src/screen/home.cpp");
+		"Nothing here yet", "Content appears when the server releases it.");
 
 	const Rect side = rect(816.0f, 352.0f, kContentRight, 652.0f);
 	box(side, kCard, 14.0f, &kBorder);
@@ -307,10 +310,11 @@ void draw_home_page()
 	char components_text[32];
 	std::snprintf(components_text, sizeof(components_text), "%d", static_cast<int>(components.size()));
 
-	const ImVec4 update_color = sdauth::StartupUpdateAvailable() ? accent_color()
-		: (sdauth::UpdateStatus() == sdauth::UpdateFailed ? kRed : kGreen);
-	const char* update_text = sdauth::StartupUpdateAvailable() ? "Update available"
-		: (sdauth::UpdateStatus() == sdauth::UpdateFailed ? "Update failed" : "Up to date");
+	const bool update_available = sdauth::StartupUpdateAvailable();
+	const bool update_retrying = sdauth::UpdateStatus() == sdauth::UpdateFailed;
+	const ImVec4 update_color = update_available ? accent_color() : (update_retrying ? kBlue : kGreen);
+	const char* update_text = update_available ? "Update available"
+		: (update_retrying ? "Retrying update" : "Up to date");
 
 	struct Row { const char* label; const char* value; ImVec4 color; };
 	const Row rows[] = {
@@ -345,7 +349,7 @@ void draw_library_page()
 	if (components.empty())
 	{
 		draw_empty_state(rect(card.min.x + 32.0f, card.min.y + 32.0f, card.max.x - 32.0f, card.max.y - 32.0f),
-			"No components yet", "Add rows to loader_components in Supabase");
+			"No components yet", "Content released by the server will appear here.");
 		return;
 	}
 
@@ -395,13 +399,15 @@ void draw_settings_page()
 
 	struct Row { const char* label; const char* value; ImVec4 color; };
 	const char* update_mode = "Automatic";
-	const char* update_state = sdauth::StartupUpdateAvailable() ? "Update available"
-		: (sdauth::UpdateStatus() == sdauth::UpdateFailed ? "Last update failed" : "Up to date");
+	const bool update_available = sdauth::StartupUpdateAvailable();
+	const bool update_retrying = sdauth::UpdateStatus() == sdauth::UpdateFailed;
+	const char* update_state = update_available ? "Update available"
+		: (update_retrying ? "Retrying update" : "Up to date");
 
 	const Row rows[] = {
 		{ "VERSION", app::kVersion, kText },
 		{ "UPDATE CHANNEL", update_mode, kGreen },
-		{ "UPDATE STATE", update_state, sdauth::StartupUpdateAvailable() ? accent_color() : kGreen },
+		{ "UPDATE STATE", update_state, update_available ? accent_color() : (update_retrying ? kBlue : kGreen) },
 		{ "STARTUP CHECK", "Passed", kGreen },
 	};
 
@@ -439,12 +445,12 @@ void draw_settings_page()
 
 	text(font.semibold, 20.0f, ImVec2(about.min.x + 28.0f, about.min.y + 96.0f), kText, "Sachin Loader");
 	text(font.caption, 11.0f, ImVec2(about.min.x + 28.0f, about.min.y + 124.0f), kMuted,
-		"Blank home screen template");
+		"Windows x64 loader");
 
 	text(font.body, 13.0f, ImVec2(about.min.x + 28.0f, about.min.y + 168.0f), kMuted,
-		"Edit src/screen/home.cpp to add your");
+		"Your apps, games and tools");
 	text(font.body, 13.0f, ImVec2(about.min.x + 28.0f, about.min.y + 192.0f), kMuted,
-		"own pages, cards and actions.");
+		"in one secure workspace.");
 
 	divider(about.min.x + 28.0f, about.max.x - 28.0f, about.min.y + 236.0f);
 

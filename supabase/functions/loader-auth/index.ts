@@ -1,33 +1,37 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 // loader-auth
-// Server-side authentication for the Sachin Loader desktop client.
+// Server-side authentication and release metadata for the Sachin Loader client.
 //
 // The client sends username + password + HWID only. This function verifies the
-// credentials against Supabase Auth, then enforces ban / HWID / rate limits via
+// credentials against Supabase Auth, then enforces ban / HWID limits through
 // public.account_login(). Supabase tokens never leave this function until the
 // account checks pass.
 //
 // Actions:
-//   startup { hwid, version, exe_hash }                     -> components
-//   login   { username, password, hwid }                    -> session
-//   bootstrap { access_token, hwid, version, exe_hash }     -> components
-//   refresh { refresh_token, hwid }                         -> session
-//   check   { access_token, hwid }                          -> ok
-//   logout  { access_token }                                -> ok
+//   startup   { hwid, version, exe_hash }                 -> components + release
+//   login     { username, password, hwid }                -> session
+//   bootstrap { access_token, hwid, version, exe_hash }   -> components + release
+//   refresh   { refresh_token, hwid }                     -> session
+//   check     { access_token, hwid }                      -> ok
+//   logout    { access_token }                            -> ok
 //
-// startup runs before the login form (no account yet). bootstrap runs right
-// after login with the user token. Both reject maintenance, old versions and
-// executables whose SHA-256 is not a released build (see loader_builds), and
-// both return latest_version / update_url / sha256 so an allowed client can
-// update itself automatically before the login form.
+// The function also mirrors the newest GitHub release into loader_config. That
+// keeps the version, download URL and SHA-256 in Supabase identical to the
+// published release without a workflow secret or a manual SQL step. The mirror
+// runs at most once every five minutes.
 //
 // Deploy with verify_jwt = false: login and refresh carry no user JWT, and the
 // function authorises every request itself.
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
-const API_KEY = ReadKey("SUPABASE_PUBLISHABLE_KEYS") || Deno.env.get("SUPABASE_ANON_KEY") || "";
+const API_KEY = ReadEnvKey("SUPABASE_PUBLISHABLE_KEYS") || ReadEnvKey("SUPABASE_ANON_KEY");
+const SERVICE_KEY = ReadEnvKey("SUPABASE_SECRET_KEYS") || ReadEnvKey("SUPABASE_SERVICE_ROLE_KEY");
+
 const EMAIL_DOMAIN = "loader.local";
+const GITHUB_REPO = "sapkotasachin064-beep/Sachin-Dev-Loader";
+const GITHUB_TIMEOUT_MS = 4500;
+const SYNC_MEMORY_MS = 60_000;
 const MAX_BODY_BYTES = 8192;
 const REQUEST_TIMEOUT_MS = 15000;
 
@@ -37,16 +41,30 @@ const CORS_HEADERS: Record<string, string> = {
 	"Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-function ReadKey(name: string): string {
-	const raw = Deno.env.get(name);
+// Supabase now exposes key sets as JSON objects. Accept both the JSON form and
+// the legacy plain string so a project can move between the two formats.
+function ReadEnvKey(name: string): string {
+	const raw = (Deno.env.get(name) ?? "").trim();
 	if (!raw) return "";
+
 	try {
 		const parsed = JSON.parse(raw);
-		if (parsed && typeof parsed.default === "string") return parsed.default;
+		if (typeof parsed === "string") return parsed.trim();
+		if (parsed && typeof parsed === "object") {
+			const values = parsed as Record<string, unknown>;
+			for (const key of ["default", "anon", "service_role", "publishable", "secret"]) {
+				const value = values[key];
+				if (typeof value === "string" && value.trim()) return value.trim();
+			}
+			for (const value of Object.values(values)) {
+				if (typeof value === "string" && value.trim()) return value.trim();
+			}
+		}
 	} catch {
-		// Not JSON: fall through to the legacy plain key below.
+		// Not JSON: the raw value is the key.
 	}
-	return "";
+
+	return raw;
 }
 
 function Json(body: unknown, status = 200): Response {
@@ -62,6 +80,10 @@ function Json(body: unknown, status = 200): Response {
 
 function Fail(error: string, status = 200): Response {
 	return Json({ ok: false, error }, status);
+}
+
+function Text(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
 function ClientIp(req: Request): string {
@@ -102,7 +124,9 @@ async function Post(
 		let data: Record<string, unknown> | null = null;
 		try {
 			const parsed = JSON.parse(text);
-			if (parsed && typeof parsed === "object") data = parsed as Record<string, unknown>;
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				data = parsed as Record<string, unknown>;
+			}
 		} catch {
 			data = null;
 		}
@@ -115,8 +139,49 @@ async function Post(
 	}
 }
 
-function Text(value: unknown): string {
-	return typeof value === "string" ? value : "";
+interface ServiceResult {
+	status: number;
+	data: unknown;
+	failed: boolean;
+}
+
+async function ServiceCall(path: string, body: unknown): Promise<ServiceResult> {
+	if (!SERVICE_KEY) return { status: 0, data: null, failed: true };
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(`${SUPABASE_URL}${path}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Accept": "application/json",
+				"apikey": SERVICE_KEY,
+				"Authorization": `Bearer ${SERVICE_KEY}`,
+			},
+			body: JSON.stringify(body),
+			signal: controller.signal,
+		});
+
+		const text = await response.text();
+		let data: unknown = null;
+		try {
+			data = text ? JSON.parse(text) : null;
+		} catch {
+			data = null;
+		}
+
+		return { status: response.status, data, failed: false };
+	} catch {
+		return { status: 0, data: null, failed: true };
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+function ServiceRpc(name: string, body: unknown): Promise<ServiceResult> {
+	return ServiceCall(`/rest/v1/rpc/${name}`, body);
 }
 
 function MapAuthError(status: number, data: Record<string, unknown> | null): string {
@@ -151,6 +216,7 @@ function MapAccountError(code: string): string {
 	case "maintenance": return "Loader is under maintenance. Try again later";
 	case "outdated": return "This loader version is outdated. Download the latest build";
 	case "bad_build": return "Loader file is modified or unknown. Download the official build";
+	case "config_missing": return "Loader configuration is missing. Contact the admin";
 	default: return "Login failed. Try again";
 	}
 }
@@ -197,8 +263,7 @@ async function AccountCall(
 	hwid: string,
 	ip: string,
 ): Promise<{ ok: boolean; username: string; error: string; status: number }> {
-	const body = { p_hwid: hwid };
-	const response = await Post(`/rest/v1/rpc/${action}`, body, token, ip);
+	const response = await Post(`/rest/v1/rpc/${action}`, { p_hwid: hwid }, token, ip);
 
 	if (response.failed) {
 		return { ok: false, username: "", error: "Cannot reach the server", status: 0 };
@@ -216,7 +281,7 @@ async function AccountCall(
 		};
 	}
 
-	const data = response.data as Record<string, unknown>;
+	const data = response.data;
 	if (data.ok !== true) {
 		const code = Text(data.error);
 		return { ok: false, username: "", error: MapAccountError(code), status: 403 };
@@ -336,18 +401,20 @@ async function BuildCall(
 		return Fail(response.status >= 500 ? "Server error, try again later" : "Loader check failed. Try again");
 	}
 
-	const data = response.data as Record<string, unknown>;
+	const data = response.data;
 	if (data.ok !== true) {
 		const code = Text(data.error);
 		const message = Text(data.message);
-		const error = code === "maintenance" && message ? message : MapAccountError(code);
+		const error = message || MapAccountError(code);
 		const updateUrl = Text(data.update_url);
 		const releaseUrl = Text(data.release_url) || Text(data.url);
 		const sha256 = Text(data.sha256);
 		const latestVersion = Text(data.latest_version);
+
 		if (updateUrl || releaseUrl) {
 			return Json({
 				ok: false,
+				code,
 				error,
 				download_url: updateUrl || releaseUrl,
 				update_url: updateUrl,
@@ -370,9 +437,94 @@ async function BuildCall(
 	});
 }
 
+// ------------------------------------------------------------ release sync ----
+
+interface ReleaseInfo {
+	version: string;
+	updateUrl: string;
+	sha256: string;
+	releaseUrl: string;
+}
+
+let lastSyncAttempt = 0;
+
+async function FetchLatestRelease(): Promise<ReleaseInfo | null> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), GITHUB_TIMEOUT_MS);
+	const headers = {
+		"Accept": "application/vnd.github+json",
+		"User-Agent": "SachinDevLoader-release-sync",
+	};
+
+	try {
+		const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+			headers,
+			signal: controller.signal,
+		});
+		if (!response.ok) return null;
+
+		const release = await response.json() as Record<string, unknown>;
+		const version = Text(release.tag_name).trim().replace(/^v/i, "");
+		if (!/^\d{1,4}(\.\d{1,4}){0,3}$/.test(version)) return null;
+
+		const assets = Array.isArray(release.assets) ? release.assets as Record<string, unknown>[] : [];
+		const exe = assets.find((asset) => Text(asset.name) === "ImGuiTemplate.exe");
+		const sums = assets.find((asset) => Text(asset.name) === "SHA256SUMS.txt");
+		if (!exe || !sums) return null;
+
+		const updateUrl = Text(exe.browser_download_url);
+		const sumsUrl = Text(sums.browser_download_url);
+		if (!updateUrl.startsWith("https://") || !sumsUrl.startsWith("https://")) return null;
+
+		const sumsResponse = await fetch(sumsUrl, { headers, signal: controller.signal });
+		if (!sumsResponse.ok) return null;
+
+		const sumsText = await sumsResponse.text();
+		const match = sumsText.match(/^([0-9a-fA-F]{64})\s+\*?ImGuiTemplate\.exe\s*$/m);
+		if (!match) return null;
+
+		return {
+			version,
+			updateUrl,
+			sha256: match[1].toLowerCase(),
+			releaseUrl: Text(release.html_url),
+		};
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+async function SyncRelease(): Promise<void> {
+	if (!SERVICE_KEY) return;
+
+	const now = Date.now();
+	if (now - lastSyncAttempt < SYNC_MEMORY_MS) return;
+	lastSyncAttempt = now;
+
+	try {
+		const begin = await ServiceRpc("loader_sync_begin", {});
+		if (begin.failed || begin.data !== true) return;
+
+		const release = await FetchLatestRelease();
+		if (!release) return;
+
+		await ServiceRpc("loader_sync_release", {
+			p_version: release.version,
+			p_update_url: release.updateUrl,
+			p_sha256: release.sha256,
+			p_release_url: release.releaseUrl,
+		});
+	} catch {
+		// Keep the last known release when GitHub or the database is unavailable.
+	}
+}
+
 async function HandleStartup(body: Record<string, unknown>, ip: string): Promise<Response> {
 	const build = ReadBuild(body);
 	if (typeof build === "string") return Fail(build);
+	await SyncRelease();
 	return await BuildCall("loader_startup", build, "", ip);
 }
 
@@ -382,6 +534,7 @@ async function HandleBootstrap(body: Record<string, unknown>, ip: string): Promi
 
 	const build = ReadBuild(body);
 	if (typeof build === "string") return Fail(build);
+	await SyncRelease();
 	return await BuildCall("loader_bootstrap", build, accessToken, ip);
 }
 

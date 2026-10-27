@@ -45,15 +45,17 @@ struct LoadingAnim
 	double done_time = -1.0; // when the bar reached 100%
 };
 
-constexpr double kStepSeconds = 0.55;
-// The startup check is paced slower so the whole screen takes about 6 seconds.
-constexpr double kStartupStepSeconds = 1.8;
-constexpr double kDoneHoldSeconds = 0.35;
+constexpr double kStepSeconds = 0.32;
+// The startup check finishes in about one second when the network answers fast.
+constexpr double kStartupStepSeconds = 0.28;
+constexpr double kDoneHoldSeconds = 0.15;
+constexpr double kRestartCountdownSeconds = 3.0;
+constexpr double kUpdateRetrySeconds = 2.5;
 
 const char* const kStartupSteps[] = {
 	"Connecting to server...",
 	"Checking loader integrity...",
-	"Downloading components...",
+	"Checking for update...",
 };
 
 const char* const kLoginSteps[] = {
@@ -73,6 +75,8 @@ struct LoginState
 	bool focus_password = false;
 	bool restart_failed = false;
 	double update_ready_time = -1.0;
+	double update_retry_time = -1.0;
+	int update_retries = 0;
 	std::string update_notice;
 	double update_notice_time = -1.0;
 	std::string message;
@@ -717,35 +721,47 @@ void busy_button(const Rect& r, const char* value)
 	text_center(font.semibold, 20.0f, r, fade(kText, 0.75f), value);
 }
 
+void reset_update_ui()
+{
+	login.restart_failed = false;
+	login.update_ready_time = -1.0;
+	login.update_retry_time = -1.0;
+	login.update_retries = 0;
+}
+
 void retry_startup()
 {
 	login.anim = LoadingAnim();
 	login.anim.step_time = ImGui::GetTime();
-	login.restart_failed = false;
-	login.update_ready_time = -1.0;
+	reset_update_ui();
 	sdauth::StartStartup();
 }
 
-// Update download, then an automatic restart. There is no way past this panel
-// without updating, so the form opens only on the new build.
-void draw_update_panel(bool update_failed, bool installed, int progress)
+// Download progress and the automatic 3 second restart. A failed optional
+// update is retried silently; a required update keeps retrying until it works.
+void draw_update_panel()
 {
 	const float w = app::kLoginWidth;
 	const float fx = 60.0f;
 	const float fw = w - fx * 2.0f;
 	const std::string version = sdauth::StartupLatestVersion();
+	const int status = sdauth::UpdateStatus();
+	const bool installed = status == sdauth::UpdateReady;
+	const bool failed = status == sdauth::UpdateFailed;
+	const int progress = sdauth::UpdateProgress();
+	const double now = ImGui::GetTime();
 
 	pill(rect(fx, 250.0f, fx + 148.0f, 272.0f),
-		update_failed ? "UPDATE FAILED" : installed ? "UPDATE READY" : "UPDATE AVAILABLE",
-		update_failed ? kRed : kLoginSubtitle);
+		installed ? "UPDATE READY" : failed ? "RETRYING UPDATE" : "UPDATING LOADER",
+		installed ? kGreen : kLoginSubtitle);
 
 	text(font.title, 26.0f, ImVec2(fx, 292.0f), kText,
-		update_failed ? "Update could not finish" : installed ? "Update installed" : "Updating loader");
+		installed ? "Restarting loader" : "Updating loader");
 
 	if (!version.empty())
 	{
 		char line[80];
-		std::snprintf(line, sizeof(line), "New version available: %s", version.c_str());
+		std::snprintf(line, sizeof(line), "New version: v%s", version.c_str());
 		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, line);
 	}
 	else
@@ -753,7 +769,7 @@ void draw_update_panel(bool update_failed, bool installed, int progress)
 		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is ready.");
 	}
 	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		installed ? "Restarting the launcher..." : "Downloading now. Please wait.");
+		installed ? "The latest build is installed." : "Downloading and installing automatically.");
 
 	const Rect track = rect(fx, 410.0f, fx + fw, 418.0f);
 	box(track, kLoginField, 4.0f);
@@ -761,7 +777,7 @@ void draw_update_panel(bool update_failed, bool installed, int progress)
 	if (fill > 0.01f)
 	{
 		const Rect bar = rect(track.min.x, track.min.y, track.min.x + width(track) * fill, track.max.y);
-		gradient_box(bar, update_failed ? kRed : kLoginBlue, update_failed ? kRed : kLoginPurple, 4.0f);
+		gradient_box(bar, kLoginBlue, kLoginPurple, 4.0f);
 	}
 
 	char percent[16];
@@ -771,58 +787,83 @@ void draw_update_panel(bool update_failed, bool installed, int progress)
 
 	std::string caption = sdauth::UpdateMessage();
 	if (login.restart_failed)
-		caption = "Cannot restart. Close and open the loader again.";
-	if (caption.empty())
-		caption = update_failed ? "The update stopped. Try again." : "Downloading update...";
-	const bool caption_is_error = update_failed || login.restart_failed;
-	text(font.body, 15.0f, ImVec2(track.min.x, 426.0f), caption_is_error ? kRed : kLoginSubtitle, caption.c_str());
+		caption = "The restart did not start. Use the button below.";
+	else if (failed)
+		caption = "Download did not finish. Retrying automatically...";
+	else if (caption.empty())
+		caption = "Downloading update...";
+	text(font.body, 15.0f, ImVec2(track.min.x, 426.0f), kLoginHint, caption.c_str());
 
 	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
-	if (update_failed)
+
+	if (installed)
 	{
-		login.update_ready_time = -1.0;
-		if (login_button("##update_retry", button, "Retry update"))
+		login.update_retry_time = -1.0;
+		if (login.update_ready_time < 0.0)
 		{
+			login.update_ready_time = now;
 			login.restart_failed = false;
-			login.update_ready_time = -1.0;
-			sdauth::StartUpdate();
 		}
-		return;
-	}
 
-	if (!installed)
-	{
-		login.update_ready_time = -1.0;
-		busy_button(button, "Please wait");
-		return;
-	}
+		if (login.restart_failed)
+		{
+			if (login_button("##update_restart", button, "Retry restart"))
+			{
+				login.restart_failed = !sdauth::RestartLoader();
+				if (!login.restart_failed)
+					PostQuitMessage(0);
+			}
+			return;
+		}
 
-	// The new exe is in place. Hold the 100% frame for a moment, then start it
-	// automatically so the update needs no extra click.
-	const double now = ImGui::GetTime();
-	if (login.update_ready_time < 0.0)
-		login.update_ready_time = now;
-
-	if (login.restart_failed)
-	{
-		if (login_button("##update_restart", button, "Retry restart"))
+		const double elapsed = now - login.update_ready_time;
+		if (elapsed >= kRestartCountdownSeconds)
 		{
 			login.restart_failed = !sdauth::RestartLoader();
 			if (!login.restart_failed)
 				PostQuitMessage(0);
+			login.update_ready_time = -1.0;
+			return;
 		}
+
+		int remaining = static_cast<int>(kRestartCountdownSeconds - elapsed);
+		if (remaining < 1)
+			remaining = 1;
+		char label[64];
+		std::snprintf(label, sizeof(label), "Restarting in %d...", remaining);
+		busy_button(button, label);
 		return;
 	}
 
-	if (now - login.update_ready_time >= 1.25)
+	login.update_ready_time = -1.0;
+
+	if (failed)
 	{
-		login.restart_failed = !sdauth::RestartLoader();
-		if (!login.restart_failed)
-			PostQuitMessage(0);
+		if (login.update_retry_time < 0.0)
+		{
+			login.update_retry_time = now + kUpdateRetrySeconds;
+			++login.update_retries;
+		}
+
+		const double wait = login.update_retry_time - now;
+		if (wait <= 0.0)
+		{
+			login.update_retry_time = -1.0;
+			sdauth::StartUpdate();
+			busy_button(button, "Retrying update...");
+			return;
+		}
+
+		int remaining = static_cast<int>(wait + 0.999);
+		if (remaining < 1)
+			remaining = 1;
+		char label[64];
+		std::snprintf(label, sizeof(label), "Retrying in %d...", remaining);
+		busy_button(button, label);
 		return;
 	}
 
-	busy_button(button, "Restarting...");
+	busy_button(button, "Updating...");
 }
 
 void draw_startup()
@@ -833,23 +874,28 @@ void draw_startup()
 	const bool failed = status == sdauth::StatusError;
 	const bool ready = status == sdauth::StatusOk;
 	const std::string update_url = sdauth::StartupDownloadUrl();
-	const bool show_update = !update_url.empty() &&
-		(failed || sdauth::StartupUpdateAvailable());
+	const bool required = sdauth::StartupUpdateRequired();
+	int update_status = sdauth::UpdateStatus();
 
-	// A newer build (or a rejected one) updates without a click: start the
-	// download at once, show progress, then restart into the new exe.
+	// A newer build (or a rejected one) updates without a click. Optional
+	// updates that keep failing are skipped so the form still opens.
+	if (update_status == sdauth::UpdateFailed && !required && login.update_retries >= 3)
+	{
+		sdauth::SkipUpdate();
+		update_status = sdauth::UpdateSkipped;
+	}
+
+	const bool show_update = !update_url.empty() && update_status != sdauth::UpdateSkipped &&
+		(required || sdauth::StartupUpdateAvailable());
+
 	if (show_update)
 	{
-		if (sdauth::UpdateStatus() == sdauth::UpdateIdle)
+		if (update_status == sdauth::UpdateIdle)
 		{
-			login.restart_failed = false;
-			login.update_ready_time = -1.0;
+			reset_update_ui();
 			sdauth::StartUpdate();
 		}
-
-		const int current_status = sdauth::UpdateStatus();
-		draw_update_panel(current_status == sdauth::UpdateFailed,
-			current_status == sdauth::UpdateReady, sdauth::UpdateProgress());
+		draw_update_panel();
 		return;
 	}
 

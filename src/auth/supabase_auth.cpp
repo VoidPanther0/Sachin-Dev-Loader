@@ -34,7 +34,7 @@ namespace {
 const wchar_t* kBaseUrl = L"https://xdtidxtkvrmurzogkxuv.supabase.co";
 const wchar_t* kAuthFunctionPath = L"/functions/v1/loader-auth";
 const char* kPublishableKey = "sb_publishable_xoEwnFlQuy-LLO5h8CRW_w_lS_uiEYr";
-const char* kUserAgent = "SachinDevLoader/0.3.1";
+const std::string kUserAgent = std::string("SachinDevLoader/") + app::kVersion;
 
 const int kHeartbeatSeconds = 300;
 const std::size_t kMaxResponseBytes = 256 * 1024;
@@ -60,6 +60,7 @@ std::string g_release_url;
 std::string g_update_sha;
 std::string g_latest_version;
 std::atomic<bool> g_update_available(false);
+std::atomic<bool> g_update_required(false);
 std::atomic<bool> g_update_busy(false);
 std::atomic<int> g_update_status(static_cast<int>(sdauth::UpdateIdle));
 std::atomic<int> g_update_progress(0);
@@ -146,7 +147,7 @@ void SetComponents(const std::vector<sdauth::Component>& components) {
 }
 
 void SetUpdateInfo(const std::string& update_url, const std::string& release_url, const std::string& sha256,
-	const std::string& latest_version) {
+	const std::string& latest_version, bool required) {
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
 		g_update_url = update_url;
@@ -157,8 +158,9 @@ void SetUpdateInfo(const std::string& update_url, const std::string& release_url
 	}
 	g_update_progress.store(0);
 	g_update_status.store(static_cast<int>(sdauth::UpdateIdle));
-	g_update_available.store(!update_url.empty() && IsSha256Hex(sha256) &&
-		VersionNewer(latest_version, app::kVersion));
+	const bool usable = !update_url.empty() && IsSha256Hex(sha256);
+	g_update_required.store(usable && required);
+	g_update_available.store(usable && (required || VersionNewer(latest_version, app::kVersion)));
 }
 
 void SetUpdate(int status, int progress, const std::string& message) {
@@ -630,13 +632,25 @@ bool SwapExecutable(const std::wstring& target, const std::vector<unsigned char>
 		return false;
 	}
 
-	if (!MoveFileExW(target.c_str(), old_file.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+	bool moved = false;
+	for (int attempt = 0; attempt < 20 && !moved; ++attempt) {
+		moved = MoveFileExW(target.c_str(), old_file.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
+		if (!moved)
+			Sleep(150);
+	}
+	if (!moved) {
 		DeleteFileW(new_file.c_str());
 		error = "Cannot replace the loader file";
 		return false;
 	}
 
-	if (!MoveFileExW(new_file.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+	bool installed = false;
+	for (int attempt = 0; attempt < 20 && !installed; ++attempt) {
+		installed = MoveFileExW(new_file.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
+		if (!installed)
+			Sleep(150);
+	}
+	if (!installed) {
 		MoveFileExW(old_file.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING);
 		DeleteFileW(new_file.c_str());
 		error = "Cannot install the update";
@@ -670,7 +684,16 @@ void RunUpdate(std::string url, std::string expected_sha) {
 
 	const std::string current_sha = ExecutableHash();
 	if (!current_sha.empty() && actual_sha == current_sha) {
-		SetUpdate(sdauth::UpdateFailed, 0, "This is already the latest build");
+		// The server pointed at the build that is already running. Do not lock
+		// the loader on a version string mismatch: continue startup instead.
+		g_update_available.store(false);
+		g_update_required.store(false);
+		g_startup_status.store(sdauth::StatusOk);
+		{
+			std::lock_guard<std::mutex> lock(g_mutex);
+			g_startup_message = "Ready";
+		}
+		SetUpdate(sdauth::UpdateSkipped, 100, "Already up to date");
 		return;
 	}
 
@@ -692,7 +715,7 @@ void RunUpdate(std::string url, std::string expected_sha) {
 		std::lock_guard<std::mutex> lock(g_mutex);
 		g_update_target = target;
 	}
-	SetUpdate(sdauth::UpdateReady, 100, "Update installed. Restart the launcher.");
+	SetUpdate(sdauth::UpdateReady, 100, "Update installed.");
 }
 
 // ------------------------------------------------------------------ login ----
@@ -733,7 +756,9 @@ bool ParseFunctionResult(const std::string& body, std::string& error) {
 }
 
 bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error,
-	std::string& update_url, std::string& release_url, std::string& sha256, std::string& latest_version) {
+	std::string& update_url, std::string& release_url, std::string& sha256, std::string& latest_version,
+	bool& update_required) {
+	update_required = false;
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root)) {
 		error = "Bad server answer";
@@ -743,7 +768,13 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 	latest_version = root.get_string("latest_version");
 
 	if (!root.get_bool("ok", false)) {
-		error = root.get_string("error");
+		std::string code = root.get_string("code");
+		std::string message = root.get_string("error");
+		// Older servers put the raw code in "error" and send no "code" field.
+		if (code.empty() && (message == "outdated" || message == "bad_build"))
+			code = message;
+		update_required = code == "outdated" || code == "bad_build";
+		error = message.empty() ? code : message;
 		if (error.empty())
 			error = "Loader check failed. Try again";
 		update_url = root.get_string("update_url");
@@ -809,14 +840,16 @@ bool RunBootstrap(const std::string& access_token, const std::string& hwid, std:
 	std::string release_url;
 	std::string sha256;
 	std::string latest_version;
-	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256, latest_version)) {
+	bool update_required = false;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256,
+			latest_version, update_required)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetUpdateInfo(update_url, release_url, sha256, latest_version);
+		SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
 		return false;
 	}
 
-	SetUpdateInfo(update_url, release_url, sha256, latest_version);
+	SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
 	SetComponents(components);
 	return true;
 }
@@ -861,16 +894,19 @@ void RunStartup(std::string hwid) {
 	std::string release_url;
 	std::string sha256;
 	std::string latest_version;
-	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256, latest_version)) {
+	bool update_required = false;
+	g_startup_stage.store(sdauth::StartupUpdateCheck);
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256,
+			latest_version, update_required)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetUpdateInfo(update_url, release_url, sha256, latest_version);
+		SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
 		SetStartup(sdauth::StatusError, error);
 		return;
 	}
 
 	g_startup_stage.store(sdauth::StartupComponents);
-	SetUpdateInfo(update_url, release_url, sha256, latest_version);
+	SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
 	SetComponents(components);
 
 	g_startup_stage.store(sdauth::StartupDone);
@@ -1051,8 +1087,10 @@ void StartLogin(const std::string& username, const std::string& password) {
 		return;
 	}
 
-	if (g_busy.exchange(true))
+	if (g_busy.exchange(true)) {
+		ReportLocalError("Please wait for the current request to finish");
 		return;
+	}
 
 	const std::string hwid = MachineHwid();
 	SetStage(StageAuthenticating);
@@ -1079,7 +1117,7 @@ void StartStartup() {
 
 	const std::string hwid = MachineHwid();
 	g_startup_stage.store(StartupConnecting);
-	SetUpdateInfo("", "", "", "");
+	SetUpdateInfo("", "", "", "", false);
 	SetStartup(StatusWorking, "Connecting...");
 
 	std::thread([hwid]() {
@@ -1125,6 +1163,10 @@ bool StartupUpdateAvailable() {
 	return g_update_available.load();
 }
 
+bool StartupUpdateRequired() {
+	return g_update_required.load();
+}
+
 void StartUpdate() {
 	if (g_update_busy.exchange(true))
 		return;
@@ -1149,15 +1191,17 @@ void StartUpdate() {
 		return;
 	}
 
-	// A changing query keeps a cached release asset from being served twice.
-	url += (url.find('?') == std::string::npos ? "?" : "&");
-	url += "build=" + sha;
-
 	SetUpdate(sdauth::UpdateDownloading, 1, "Downloading update...");
 	std::thread([url, sha]() {
 		RunUpdate(url, sha);
 		g_update_busy.store(false);
 	}).detach();
+}
+
+void SkipUpdate() {
+	g_update_available.store(false);
+	g_update_required.store(false);
+	SetUpdate(sdauth::UpdateSkipped, 0, "Update skipped");
 }
 
 bool RestartLoader() {
