@@ -1,4 +1,5 @@
 #include "dashboard_common.h"
+#include "imgui_internal.h"
 
 #include <cctype>
 #include <cfloat>

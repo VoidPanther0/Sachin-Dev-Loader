@@ -1,4 +1,5 @@
 #include "login_common.h"
+#include "imgui_internal.h"
 #include "../Resources/resource.h"
 
 #include <wincodec.h>

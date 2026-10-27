@@ -71,13 +71,13 @@ void DrawLoading(const char* const* steps, int count, const LoadingAnim& anim, i
 	const std::string& caption, bool caption_is_error);
 
 // Thin progress bar with a percent label, used by the update panel.
-void DrawBar(const Rect& track, float fraction);
+void DrawBar(const ui::Rect& track, float fraction);
 
 // ---------------------------------------------------------------- buttons ----
 
-bool GradientButton(const char* id, const Rect& r, const char* value);
+bool GradientButton(const char* id, const ui::Rect& r, const char* value);
 
 // Faded button shown while a loading screen runs.
-void BusyButton(const Rect& r, const char* value);
+void BusyButton(const ui::Rect& r, const char* value);
 
 } // namespace login_ui
