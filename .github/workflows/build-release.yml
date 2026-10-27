@@ -95,5 +95,6 @@ jobs:
             Older builds update automatically; verify the file against the build artifact `SHA256SUMS.txt`.
           files: |
             dist/ImGuiTemplate.exe
+            dist/SHA256SUMS.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
