@@ -59,6 +59,23 @@ struct Component {
 	std::string name;
 	std::string version;
 	std::string description;
+	std::string status = "online"; // online, updating, offline or beta
+	std::string download_url;      // empty until signed in, or when not launchable
+	std::string sha256;
+};
+
+// One release note, sent by the server.
+struct NewsItem {
+	std::string version;
+	std::string date; // YYYY-MM-DD
+	std::string tag;  // FEATURE, FIX, UPDATE, RELEASE or NOTICE
+	std::string title;
+	std::string body;
+};
+
+struct Announcement {
+	std::string message; // empty when there is nothing to show
+	std::string level;   // "info" or "warning"
 };
 
 struct Session {
@@ -126,6 +143,24 @@ int LoginStage();
 
 // Components the server released after the bootstrap checks passed.
 std::vector<Component> Components();
+
+// Release notes, banner message and support link from the last server check.
+std::vector<NewsItem> News();
+Announcement GetAnnouncement();
+std::string SupportUrl();
+
+// Unix seconds when this account's access ends. 0 means no expiry.
+long long AccountExpiresAt();
+
+// Downloads a component (SHA-256 checked, cached in %APPDATA%\SachinDevLoader
+// \components) and starts it. Runs on a worker thread; poll the status below.
+// Returns false when a launch is already running or the component cannot start.
+bool LaunchComponent(const std::string& name);
+int LaunchStatus();      // Status: Idle, Working, Ok (started) or Error
+int LaunchProgress();    // 0 to 100 while downloading
+std::string LaunchName();
+std::string LaunchMessage();
+void ResetLaunch();      // back to Idle once the UI has shown the result
 
 // Reports a client-side validation failure without touching the network.
 void ReportLocalError(const std::string& message);

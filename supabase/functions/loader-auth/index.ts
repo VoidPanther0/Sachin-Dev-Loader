@@ -9,7 +9,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 // account checks pass.
 //
 // Actions:
-//   startup   { hwid, version, exe_hash }                 -> components + release
+//   startup   { hwid, version, exe_hash }                 -> components, news, announcement, release
 //   login     { username, password, hwid }                -> session
 //   bootstrap { access_token, hwid, version, exe_hash }   -> components + release
 //   refresh   { refresh_token, hwid }                     -> session
@@ -209,6 +209,7 @@ function MapAccountError(code: string): string {
 	switch (code) {
 	case "no_account": return "Account setup is incomplete. Contact the admin";
 	case "banned": return "This account is banned";
+	case "expired": return "Your access has expired. Contact the admin";
 	case "hwid_mismatch": return "This account is locked to another device";
 	case "rate_limited": return "Too many attempts. Wait a few minutes";
 	case "invalid_input": return "Could not read this device ID";
@@ -429,7 +430,11 @@ async function BuildCall(
 	return Json({
 		ok: true,
 		username: Text(data.username),
+		expires_at: typeof data.expires_at === "number" ? data.expires_at : 0,
 		components: Array.isArray(data.components) ? data.components : [],
+		news: Array.isArray(data.news) ? data.news : [],
+		announcement: data.announcement && typeof data.announcement === "object" ? data.announcement : null,
+		support_url: Text(data.support_url),
 		latest_version: Text(data.latest_version),
 		update_url: Text(data.update_url),
 		release_url: Text(data.release_url) || Text(data.url),

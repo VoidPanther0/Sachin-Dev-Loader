@@ -109,6 +109,44 @@ Keep `enforce_build_hash = false` while developing, or add every new hash to
 The client uses a publishable key in `src/auth/supabase_auth.cpp`. That key is safe to
 ship. Never put the `service_role` key in the application.
 
+## Content, news and admin
+
+Everything on the home screen is controlled from the SQL editor. Apply
+`supabase/migrations/20261027000000_loader_features.sql` and redeploy
+`loader-auth` (same commands as above). Run the `admin_*` helpers as the
+`postgres` role; they are not reachable from the client.
+
+```sql
+-- Launchable component. The loader downloads the exe, checks the SHA-256,
+-- caches it in %APPDATA%\SachinDevLoader\components and starts it.
+-- status: online, updating, offline or beta. Only online/beta can launch.
+select public.admin_upsert_component(
+  'MyTool', '1.0', 'What it does',
+  'https://example.com/MyTool.exe', '<sha256>', 'online');
+select public.admin_set_component_status('MyTool', 'updating');
+select public.admin_remove_component('MyTool');
+select * from public.admin_list_components();
+
+-- News page and the "What's new" card. tag: FEATURE, FIX, UPDATE, RELEASE, NOTICE.
+select public.admin_publish_news('Title', 'Body text', 'FEATURE', '0.4.0');
+select * from public.admin_list_news();
+select public.admin_remove_news(1);
+
+-- Banner next to the page title, and the Support link in the sidebar.
+select public.admin_set_announcement('Maintenance at 6 PM', 'warning');  -- or 'info'
+select public.admin_set_announcement('');                                -- clear
+select public.admin_set_support_url('https://discord.gg/your-invite');
+
+-- Account expiry. Expired accounts are signed out within five minutes.
+select public.admin_set_expiry('username', 30);    -- 30 days from now
+select public.admin_extend_expiry('username', 30); -- add 30 days
+select public.admin_set_expiry('username', null);  -- lifetime
+select * from public.admin_list_accounts();
+```
+
+Download URLs and hashes are only sent to signed-in accounts. The built-in news
+list in `src/screen/home.cpp` is used only when the server sends none.
+
 ## Automatic updates
 
 Every launch calls the startup check before the login form. When the server

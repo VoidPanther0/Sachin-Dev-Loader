@@ -320,6 +320,8 @@ void app::Init()
 	ui::load_fonts();
 	ui::apply_style();
 
+	screen_home::LoadPreferences();
+
 	sdauth::Init();
 	screen_login::Init();
 }

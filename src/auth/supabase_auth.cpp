@@ -3,6 +3,7 @@
 #include "app.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <winhttp.h>
 #include <bcrypt.h>
 
@@ -49,6 +50,15 @@ std::atomic<int> g_stage(static_cast<int>(sdauth::StageNone));
 std::string g_message;
 sdauth::Session g_session;
 std::vector<sdauth::Component> g_components;
+std::vector<sdauth::NewsItem> g_news;
+sdauth::Announcement g_announcement;
+std::string g_support_url;
+std::atomic<long long> g_expires_at(0);
+std::atomic<int> g_launch_status(static_cast<int>(sdauth::StatusIdle));
+std::atomic<int> g_launch_progress(0);
+std::atomic<bool> g_launch_busy(false);
+std::string g_launch_name;
+std::string g_launch_message;
 std::string g_hwid;
 std::string g_exe_hash;
 std::atomic<int> g_startup_status(static_cast<int>(sdauth::StatusIdle));
@@ -463,7 +473,10 @@ bool IsSha256Hex(const std::string& value) {
 
 // Downloads a file with WinHTTP. GitHub answers the latest-release URL with a
 // redirect, so follow up to five Location headers.
-bool HttpDownload(const std::wstring& url, std::vector<unsigned char>& bytes, std::string& error) {
+// progress receives 0 to 90 while the body arrives. Without it the loader update
+// bar (g_update_progress) is driven, but only while an update is downloading.
+bool HttpDownload(const std::wstring& url, std::vector<unsigned char>& bytes, std::string& error,
+	std::atomic<int>* progress = nullptr) {
 	bytes.clear();
 	const std::wstring agent = Utf8ToWide(kUserAgent);
 	std::wstring current = url;
@@ -583,9 +596,9 @@ bool HttpDownload(const std::wstring& url, std::vector<unsigned char>& bytes, st
 			chunk.resize(read);
 			bytes.insert(bytes.end(), chunk.begin(), chunk.end());
 
-			if (total > 0 && g_update_status.load() == sdauth::UpdateDownloading) {
+			if (total > 0 && (progress != nullptr || g_update_status.load() == sdauth::UpdateDownloading)) {
 				const unsigned long long percent = static_cast<unsigned long long>(bytes.size()) * 90 / total;
-				g_update_progress.store(static_cast<int>(percent > 90 ? 90 : percent));
+				(progress != nullptr ? *progress : g_update_progress).store(static_cast<int>(percent > 90 ? 90 : percent));
 			}
 		}
 
@@ -718,6 +731,144 @@ void RunUpdate(std::string url, std::string expected_sha) {
 	SetUpdate(sdauth::UpdateReady, 100, "Update installed.");
 }
 
+// ----------------------------------------------------------------- launch ----
+
+void SetLaunch(int status, int progress, const std::string& message) {
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_launch_message = message;
+	}
+	g_launch_progress.store(progress);
+	g_launch_status.store(status);
+}
+
+// Folder for downloaded components: %APPDATA%\SachinDevLoader\components.
+std::wstring ComponentDirectory() {
+	wchar_t appdata[MAX_PATH] = {};
+	const DWORD length = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+	if (length == 0 || length >= MAX_PATH)
+		return std::wstring();
+
+	std::wstring directory = std::wstring(appdata) + L"\\SachinDevLoader";
+	CreateDirectoryW(directory.c_str(), nullptr);
+	directory += L"\\components";
+	CreateDirectoryW(directory.c_str(), nullptr);
+	return directory;
+}
+
+// Letters, digits, dash and underscore only, so a server name can never point
+// outside the component folder.
+std::wstring ComponentFileName(const std::string& name) {
+	std::wstring file;
+	for (const char c : name) {
+		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_')
+			file += static_cast<wchar_t>(c);
+		else if (c == ' ')
+			file += L'_';
+	}
+	if (file.empty())
+		file = L"component";
+	return file + L".exe";
+}
+
+bool ReadFileBytes(const std::wstring& path, std::string& bytes) {
+	bytes.clear();
+	HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE)
+		return false;
+
+	LARGE_INTEGER size = {};
+	bool ok = GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= static_cast<long long>(kMaxUpdateBytes);
+	if (ok) {
+		bytes.resize(static_cast<std::size_t>(size.QuadPart));
+		DWORD read = 0;
+		ok = ReadFile(file, &bytes[0], static_cast<DWORD>(bytes.size()), &read, nullptr) != FALSE && read == bytes.size();
+	}
+	CloseHandle(file);
+	if (!ok)
+		bytes.clear();
+	return ok;
+}
+
+bool StartProgram(const std::wstring& path, const std::wstring& directory, std::string& error) {
+	const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+	SHELLEXECUTEINFOW info;
+	ZeroMemory(&info, sizeof(info));
+	info.cbSize = sizeof(info);
+	info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+	info.lpVerb = L"open";
+	info.lpFile = path.c_str();
+	info.lpDirectory = directory.c_str();
+	info.nShow = SW_SHOWNORMAL;
+
+	const BOOL started = ShellExecuteExW(&info);
+	const DWORD last_error = GetLastError();
+
+	if (SUCCEEDED(com))
+		CoUninitialize();
+
+	if (started)
+		return true;
+
+	error = last_error == ERROR_CANCELLED ? "Start was cancelled" : "Cannot start the component";
+	return false;
+}
+
+// Downloads the component unless a verified copy is already on disk, then
+// starts it. The file must match the SHA-256 the server sent.
+void RunLaunch(std::string name, std::string url, std::string expected_sha) {
+	const std::wstring directory = ComponentDirectory();
+	if (directory.empty()) {
+		SetLaunch(sdauth::StatusError, 0, "Cannot find the loader data folder");
+		return;
+	}
+
+	const std::wstring target = directory + L"\\" + ComponentFileName(name);
+
+	std::string cached;
+	const bool have_copy = ReadFileBytes(target, cached) && Sha256Hex(cached) == expected_sha;
+
+	if (!have_copy) {
+		SetLaunch(sdauth::StatusWorking, 2, "Downloading " + name + "...");
+
+		std::vector<unsigned char> bytes;
+		std::string error;
+		if (!HttpDownload(Utf8ToWide(url), bytes, error, &g_launch_progress)) {
+			SetLaunch(sdauth::StatusError, 0, error.empty() ? "Cannot download the component" : error);
+			return;
+		}
+
+		SetLaunch(sdauth::StatusWorking, 95, "Verifying " + name + "...");
+		const std::string blob(reinterpret_cast<const char*>(&bytes[0]), bytes.size());
+		if (Sha256Hex(blob) != expected_sha) {
+			SetLaunch(sdauth::StatusError, 0, "Checksum does not match. The file was not started");
+			return;
+		}
+
+		const std::wstring part = target + L".part";
+		if (!WriteAllBytes(part, bytes)) {
+			SetLaunch(sdauth::StatusError, 0, "Cannot save the component. Close it if it is running");
+			return;
+		}
+		if (!MoveFileExW(part.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+			DeleteFileW(part.c_str());
+			SetLaunch(sdauth::StatusError, 0, "Cannot save the component. Close it if it is running");
+			return;
+		}
+	}
+
+	SetLaunch(sdauth::StatusWorking, 98, "Starting " + name + "...");
+	std::string error;
+	if (!StartProgram(target, directory, error)) {
+		SetLaunch(sdauth::StatusError, 0, error);
+		return;
+	}
+
+	SetLaunch(sdauth::StatusOk, 100, name + " started");
+}
+
 // ------------------------------------------------------------------ login ----
 
 bool ParseSession(const std::string& body, const std::string& username, sdauth::Session& session) {
@@ -804,11 +955,60 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 			component.name = item.get_string("name");
 			component.version = item.get_string("version");
 			component.description = item.get_string("description");
+			component.status = item.get_string("status", "online");
+			component.download_url = item.get_string("download_url");
+			component.sha256 = item.get_string("sha256");
+			for (char& c : component.sha256)
+				c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
 			if (!component.name.empty())
 				components.push_back(component);
 		}
 	}
 	return true;
+}
+
+// News, announcement, support link and account expiry from a successful
+// startup or bootstrap answer. Only a signed-in answer carries expires_at.
+void ParseExtras(const std::string& body, bool signed_in) {
+	jsonlite::Value root;
+	if (!jsonlite::Parse(body, root))
+		return;
+
+	std::vector<sdauth::NewsItem> news;
+	const jsonlite::Value* list = root.find("news");
+	if (list && list->is_array()) {
+		for (const jsonlite::Value& item : list->array) {
+			sdauth::NewsItem entry;
+			entry.version = item.get_string("version");
+			entry.date = item.get_string("date");
+			entry.tag = item.get_string("tag", "UPDATE");
+			entry.title = item.get_string("title");
+			entry.body = item.get_string("body");
+			if (!entry.title.empty())
+				news.push_back(entry);
+		}
+	}
+
+	sdauth::Announcement announcement;
+	const jsonlite::Value* banner = root.find("announcement");
+	if (banner && banner->is_object()) {
+		announcement.message = banner->get_string("message");
+		announcement.level = banner->get_string("level", "info");
+	}
+
+	std::string support = root.get_string("support_url");
+	if (support.compare(0, 8, "https://") != 0)
+		support.clear();
+
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_news = news;
+		g_announcement = announcement;
+		g_support_url = support;
+	}
+
+	if (signed_in)
+		g_expires_at.store(static_cast<long long>(root.get_number("expires_at", 0.0)));
 }
 
 // Server-side bootstrap: account, HWID, client version and executable hash are
@@ -851,6 +1051,7 @@ bool RunBootstrap(const std::string& access_token, const std::string& hwid, std:
 
 	SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
 	SetComponents(components);
+	ParseExtras(response.body, true);
 	return true;
 }
 
@@ -908,6 +1109,7 @@ void RunStartup(std::string hwid) {
 	g_startup_stage.store(sdauth::StartupComponents);
 	SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
 	SetComponents(components);
+	ParseExtras(response.body, false);
 
 	g_startup_stage.store(sdauth::StartupDone);
 	SetStartup(sdauth::StatusOk, "Ready");
@@ -1258,6 +1460,87 @@ std::vector<Component> Components() {
 	return g_components;
 }
 
+std::vector<NewsItem> News() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_news;
+}
+
+Announcement GetAnnouncement() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_announcement;
+}
+
+std::string SupportUrl() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_support_url;
+}
+
+long long AccountExpiresAt() {
+	return g_expires_at.load();
+}
+
+bool LaunchComponent(const std::string& name) {
+	if (!HasSession())
+		return false;
+
+	std::string url;
+	std::string sha;
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		for (const Component& component : g_components) {
+			if (component.name != name)
+				continue;
+			if (component.status == "online" || component.status == "beta") {
+				url = component.download_url;
+				sha = component.sha256;
+			}
+			break;
+		}
+	}
+
+	if (url.compare(0, 8, "https://") != 0 || !IsSha256Hex(sha))
+		return false;
+
+	if (g_launch_busy.exchange(true))
+		return false;
+
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_launch_name = name;
+	}
+	SetLaunch(StatusWorking, 1, "Preparing " + name + "...");
+
+	std::thread([name, url, sha]() {
+		RunLaunch(name, url, sha);
+		g_launch_busy.store(false);
+	}).detach();
+	return true;
+}
+
+int LaunchStatus() {
+	return g_launch_status.load();
+}
+
+int LaunchProgress() {
+	return g_launch_progress.load();
+}
+
+std::string LaunchName() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_launch_name;
+}
+
+std::string LaunchMessage() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_launch_message;
+}
+
+void ResetLaunch() {
+	if (g_launch_busy.load())
+		return;
+	g_launch_status.store(StatusIdle);
+}
+
 void ReportLocalError(const std::string& message) {
 	SetStatus(StatusError, message);
 }
@@ -1281,6 +1564,9 @@ void SignOut() {
 	SetSession(Session());
 	SetStage(StageNone);
 	g_next_check.store(0);
+	g_expires_at.store(0);
+	if (!g_launch_busy.load())
+		g_launch_status.store(StatusIdle);
 
 	if (!current.valid || current.access_token.empty())
 		return;

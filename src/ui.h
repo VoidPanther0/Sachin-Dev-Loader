@@ -38,7 +38,7 @@ ImU32 color_u32(const ImVec4& color);
 
 struct State
 {
-	int page = 0;            // 0 = Home, 1 = Library, 2 = Settings
+	int page = 0;            // 0 = Home, 1 = Library, 2 = News, 3 = Settings
 	float accent[3] = { 0.42f, 0.56f, 1.00f };
 	float fps = 0.0f;
 	std::string status = "Ready.";
@@ -122,6 +122,9 @@ void SessionLost();
 } // namespace screen_login
 
 namespace screen_home {
+
+// Loads the saved accent color and interface options from settings.ini.
+void LoadPreferences();
 
 // Draws the main dashboard.
 void Render();
