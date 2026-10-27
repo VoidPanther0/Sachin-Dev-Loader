@@ -125,15 +125,15 @@ To ship a new version:
 
 1. Bump `app::kVersion` in `src/app.h` and the version strings in
    `src/Resources/version.rc`.
-2. Push a matching tag, for example `v1.0.1`. The workflow builds the exe and
+2. Push a matching tag, for example `v2`. The workflow builds the exe and
    publishes it as a GitHub Release with `SHA256SUMS.txt`.
 3. When the release is published, change the version in the database:
 
 ```sql
-update public.loader_config set version = '1.0.1' where id = 1;
+update public.loader_config set version = '2' where id = 1;
 ```
 
-`loader-auth` finds the GitHub release tagged `v1.0.1` and sends its download
+`loader-auth` finds the GitHub release tagged `v2` and sends its download
 URL and SHA-256 to the client. Every loader below that version updates on the
 startup loading screen: it downloads, verifies the SHA-256, replaces the
 running exe (the old one becomes `<exe>.old`) and restarts. Do not change the
@@ -234,8 +234,8 @@ update the build commands in `.github/workflows/build-release.yml`. Also update
 Push a version tag:
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v2
+git push origin v2
 ```
 
 The workflow builds `Release|x64` and uploads a two-file artifact:

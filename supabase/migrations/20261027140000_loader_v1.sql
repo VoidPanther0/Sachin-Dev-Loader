@@ -1,4 +1,4 @@
--- Sachin Dev Loader v1.1.0: final schema.
+-- Sachin Dev Loader v1: final schema.
 --
 --   profiles           one row per loader account (bound to auth.users)
 --   loader_config      one row: maintenance switch and release versions
@@ -6,8 +6,8 @@
 --
 -- Ship a release by publishing the GitHub release, then editing version in
 -- loader_config:
---   update public.loader_config set version = '1.0.1' where id = 1;
--- The Edge Function finds the matching GitHub release (tag v1.0.1) and sends
+--   update public.loader_config set version = '2' where id = 1;
+-- The Edge Function finds the matching GitHub release (tag v2) and sends
 -- its download URL and SHA-256 to the client. A build below this version
 -- updates itself on the loading screen.
 --
@@ -49,11 +49,11 @@ create table if not exists public.loader_config (
   id smallint primary key default 1,
   maintenance boolean not null default false,
   maintenance_message text not null default '',
-  version text not null default '1.1.0',
+  version text not null default '1',
   constraint loader_config_single_row check (id = 1)
 );
 
-alter table public.loader_config add column if not exists version text not null default '1.1.0';
+alter table public.loader_config add column if not exists version text not null default '1';
 do $$
 begin
   if exists (select 1 from information_schema.columns
@@ -130,11 +130,11 @@ drop table if exists public.loader_check_log cascade;
 -- ------------------------------------------------------------- seed data ----
 
 insert into public.loader_config (id, maintenance, maintenance_message, version)
-values (1, false, '', '1.1.0')
+values (1, false, '', '1')
 on conflict (id) do nothing;
 
 insert into public.loader_components (name, version, description, status, requires_login, sort_order)
-values ('Core', '1.1.0', 'Loader core and session tools', 'online', true, 10)
+values ('Core', '1', 'Loader core and session tools', 'online', true, 10)
 on conflict (name) do update set
   version = excluded.version,
   description = excluded.description;
