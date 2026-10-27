@@ -31,6 +31,7 @@ const API_KEY = ReadEnvKey("SUPABASE_PUBLISHABLE_KEYS") || ReadEnvKey("SUPABASE_
 
 const EMAIL_DOMAIN = "loader.local";
 const GITHUB_REPO = "sapkotasachin064-beep/Sachin-Dev-Loader";
+const EXE_NAMES = ["SachinDevLoader.exe", "ImGuiTemplate.exe"];
 const GITHUB_TIMEOUT_MS = 4500;
 const RELEASE_MEMORY_MS = 300_000;
 const RELEASE_MISS_MEMORY_MS = 20_000;
@@ -433,7 +434,8 @@ async function FetchRelease(version: string): Promise<ReleaseInfo | null> {
 
 		const release = await response.json() as Record<string, unknown>;
 		const assets = Array.isArray(release.assets) ? release.assets as Record<string, unknown>[] : [];
-		const exe = assets.find((asset) => Text(asset.name) === "ImGuiTemplate.exe");
+		// Releases before the rename carry ImGuiTemplate.exe.
+		const exe = assets.find((asset) => EXE_NAMES.includes(Text(asset.name)));
 		const sums = assets.find((asset) => Text(asset.name) === "SHA256SUMS.txt");
 		if (!exe || !sums) return null;
 
@@ -444,7 +446,7 @@ async function FetchRelease(version: string): Promise<ReleaseInfo | null> {
 		const sumsResponse = await fetch(sumsUrl, { headers, signal: controller.signal });
 		if (!sumsResponse.ok) return null;
 
-		const match = (await sumsResponse.text()).match(/^([0-9a-fA-F]{64})\s+\*?ImGuiTemplate\.exe\s*$/m);
+		const match = (await sumsResponse.text()).match(/^([0-9a-fA-F]{64})\s+\*?(?:SachinDevLoader|ImGuiTemplate)\.exe\s*$/m);
 		if (!match) return null;
 
 		return {

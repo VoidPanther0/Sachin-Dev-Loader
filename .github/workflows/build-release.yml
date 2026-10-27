@@ -26,7 +26,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build Release x64
-        run: msbuild ImGuiTemplate.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
+        run: msbuild SachinDevLoader.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
 
       - name: Sign executable
         if: env.WINDOWS_CERT_PFX_BASE64 != ''
@@ -42,10 +42,10 @@ jobs:
             Select-Object -First 1
           if (-not $signtool) { throw "signtool.exe was not found in the Windows SDK." }
 
-          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "ImGuiTemplate.exe" |
+          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "SachinDevLoader.exe" |
             Where-Object { $_.FullName -notlike "*\dist\*" } |
             Select-Object -First 1
-          if (-not $exe) { throw "ImGuiTemplate.exe was not produced by the build." }
+          if (-not $exe) { throw "SachinDevLoader.exe was not produced by the build." }
 
           & $signtool.FullName sign /fd SHA256 /f $pfx /p $env:WINDOWS_CERT_PFX_PASSWORD `
             /tr http://timestamp.digicert.com /td SHA256 $exe.FullName
@@ -63,23 +63,23 @@ jobs:
           $dist = Join-Path $env:GITHUB_WORKSPACE "dist"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "ImGuiTemplate.exe" |
+          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter "SachinDevLoader.exe" |
             Select-Object -First 1
-          if (-not $exe) { throw "ImGuiTemplate.exe was not produced by the build." }
+          if (-not $exe) { throw "SachinDevLoader.exe was not produced by the build." }
 
-          Copy-Item $exe.FullName (Join-Path $dist "ImGuiTemplate.exe") -Force
+          Copy-Item $exe.FullName (Join-Path $dist "SachinDevLoader.exe") -Force
 
-          $hash = (Get-FileHash (Join-Path $dist "ImGuiTemplate.exe") -Algorithm SHA256).Hash
-          "$hash  ImGuiTemplate.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+          $hash = (Get-FileHash (Join-Path $dist "SachinDevLoader.exe") -Algorithm SHA256).Hash
+          "$hash  SachinDevLoader.exe" | Out-File -FilePath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
 
-          "Built ImGuiTemplate.exe ($hash)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Built SachinDevLoader.exe ($hash)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ImGuiTemplate-win64
+          name: SachinDevLoader-win64
           path: |
-            dist/ImGuiTemplate.exe
+            dist/SachinDevLoader.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -91,10 +91,10 @@ jobs:
           body: |
             <img src="https://raw.githubusercontent.com/sapkotasachin064-beep/Sachin-Dev-Loader/main/src/Resources/Slogo.png" width="96" alt="Sachin Dev Loader">
 
-            Windows x64 executable. Download `ImGuiTemplate.exe` and run it.
+            Windows x64 executable. Download `SachinDevLoader.exe` and run it.
             Older builds update automatically; verify the file against the build artifact `SHA256SUMS.txt`.
           files: |
-            dist/ImGuiTemplate.exe
+            dist/SachinDevLoader.exe
             dist/SHA256SUMS.txt
           generate_release_notes: true
           fail_on_unmatched_files: true

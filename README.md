@@ -150,20 +150,20 @@ copy of `d3dcompiler`.
 
 ## Build
 
-Open `ImGuiTemplate.sln` in Visual Studio, choose `Release | x64`, and build.
+Open `SachinDevLoader.sln` in Visual Studio, choose `Release | x64`, and build.
 
 From a terminal:
 
 ```powershell
-msbuild ImGuiTemplate.sln /m /p:Configuration=Release /p:Platform=x64
+msbuild SachinDevLoader.sln /m /p:Configuration=Release /p:Platform=x64
 ```
 
-The executable is written to `x64\Release\ImGuiTemplate.exe`.
+The executable is written to `x64\Release\SachinDevLoader.exe`.
 
 For a debug build:
 
 ```powershell
-msbuild ImGuiTemplate.sln /m /p:Configuration=Debug /p:Platform=x64
+msbuild SachinDevLoader.sln /m /p:Configuration=Debug /p:Platform=x64
 ```
 
 ## Layout
@@ -198,8 +198,8 @@ src/
 supabase/
   migrations/               One schema file
   functions/loader-auth/    Edge Function
-ImGuiTemplate.sln
-ImGuiTemplate.vcxproj
+SachinDevLoader.sln
+SachinDevLoader.vcxproj
 ```
 
 `main.cpp` owns the window and rendering. `ui.cpp` implements the shared
@@ -223,8 +223,8 @@ Each screen lives in its own file under `src/screen`.
 | Executable icon     | `src/Resources/app.ico`                            |
 | Version resource    | `src/Resources/version.rc`                         |
 
-To rename the project, rename `ImGuiTemplate.sln`, `ImGuiTemplate.vcxproj`, and
-`ImGuiTemplate.vcxproj.filters`, update the `Project(` line in the solution, and
+To rename the project, rename `SachinDevLoader.sln`, `SachinDevLoader.vcxproj`, and
+`SachinDevLoader.vcxproj.filters`, update the `Project(` line in the solution, and
 update the build commands in `.github/workflows/build-release.yml`. Also update
 `assemblyIdentity` in `src/Resources/app.manifest` and the strings in
 `src/Resources/version.rc` so the binary metadata matches the new name.
@@ -239,7 +239,7 @@ git push origin v2
 ```
 
 The workflow builds `Release|x64` and uploads a two-file artifact:
-`ImGuiTemplate.exe` and `SHA256SUMS.txt`. The GitHub Release contains both;
+`SachinDevLoader.exe` and `SHA256SUMS.txt`. The GitHub Release contains both;
 `loader-auth` reads the hash from `SHA256SUMS.txt`.
 
 The startup check returns `version`, `update_url` and `sha256` on both
@@ -273,7 +273,7 @@ before public distribution:
 ```powershell
 signtool sign /fd SHA256 /f certificate.pfx /p "<password>" `
   /tr http://timestamp.digicert.com /td SHA256 `
-  ImGuiTemplate.exe
+  SachinDevLoader.exe
 ```
 
 The release workflow signs the executable automatically when these repository

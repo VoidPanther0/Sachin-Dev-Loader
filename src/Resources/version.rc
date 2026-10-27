@@ -25,7 +25,7 @@ BEGIN
             VALUE "FileVersion", "1"
             VALUE "InternalName", "SachinDevLoader"
             VALUE "LegalCopyright", "Copyright (C) 2026"
-            VALUE "OriginalFilename", "ImGuiTemplate.exe"
+            VALUE "OriginalFilename", "SachinDevLoader.exe"
             VALUE "ProductName", "Sachin Dev Loader"
         END
     END

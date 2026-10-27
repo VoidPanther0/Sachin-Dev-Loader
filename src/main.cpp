@@ -261,7 +261,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
 		window_class.hIcon = icon;
 		window_class.hIconSm = icon_small;
 		window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-		window_class.lpszClassName = L"ImGuiTemplateWindow";
+		window_class.lpszClassName = L"SachinDevLoaderWindow";
 
 		if (!RegisterClassExW(&window_class))
 		{

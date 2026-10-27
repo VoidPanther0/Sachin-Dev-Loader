@@ -22,7 +22,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{F6A287E5-756B-47D5-8091-6391D2536F84}</ProjectGuid>
-    <RootNamespace>ImGuiTemplate</RootNamespace>
+    <RootNamespace>SachinDevLoader</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
