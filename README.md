@@ -67,7 +67,7 @@ The loader shows two loading screens. Every step is decided by the server.
    fails, the token is revoked and the form shows the reason. The home screen
    opens only after every step passes.
 
-Apply `supabase/migrations/20261026000000_loader_checks.sql`, then redeploy the
+Apply `supabase/migrations/20261026120000_loader_cleanup.sql`, then redeploy the
 function:
 
 ```bash
@@ -78,10 +78,6 @@ supabase functions deploy loader-auth --no-verify-jwt
 Manage the checks from the SQL editor:
 
 ```sql
--- Register a release build (hash from SHA256SUMS.txt), then enforce hashes.
-insert into public.loader_builds (exe_hash, version) values ('<sha256>', '0.2');
-update public.loader_config set enforce_build_hash = true;
-
 -- Publish a build. latest_version makes allowed clients update early;
 -- min_version is the hard cutoff that blocks very old clients.
 update public.loader_config
@@ -97,14 +93,9 @@ update public.loader_config set maintenance = true, maintenance_message = 'Back 
 -- Components shown to the client. requires_login = true hides one until login.
 insert into public.loader_components (name, version, description, requires_login)
 values ('Core', '0.2', 'Base runtime', false);
-
--- Audit log of every startup and bootstrap check.
-select * from public.loader_check_log order by id desc limit 50;
 ```
 
-Keep `enforce_build_hash = false` while developing, or add every new hash to
-`public.loader_builds`. With enforcement on, an unregistered exe gets
-`bad_build` and cannot start.
+An exe hash that is not a valid SHA-256 gets `bad_build` and cannot start.
 
 The client uses a publishable key in `src/auth/supabase_auth.cpp`. That key is safe to
 ship. Never put the `service_role` key in the application.
