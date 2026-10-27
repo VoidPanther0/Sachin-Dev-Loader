@@ -1,5 +1,5 @@
-#include "dashboard_common.h"
-#include "login_common.h"
+#include "common/dashboard_common.h"
+#include "common/login_common.h"
 
 #include <cstdio>
 #include <string>

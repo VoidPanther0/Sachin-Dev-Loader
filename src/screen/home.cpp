@@ -1,4 +1,4 @@
-#include "dashboard_common.h"
+#include "common/dashboard_common.h"
 
 #include <cstdio>
 #include <string>

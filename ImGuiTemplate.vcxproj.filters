@@ -48,7 +48,7 @@
     <ClCompile Include="src\screen\dashboard.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
-    <ClCompile Include="src\screen\dashboard_common.cpp">
+    <ClCompile Include="src\screen\common\dashboard_common.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
     <ClCompile Include="src\screen\dll_tools.cpp">
@@ -66,7 +66,7 @@
     <ClCompile Include="src\screen\login.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
-    <ClCompile Include="src\screen\login_common.cpp">
+    <ClCompile Include="src\screen\common\login_common.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
     <ClCompile Include="src\screen\settings.cpp">
@@ -101,10 +101,10 @@
     <ClInclude Include="src\ui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\screen\dashboard_common.h">
+    <ClInclude Include="src\screen\common\dashboard_common.h">
       <Filter>Screens</Filter>
     </ClInclude>
-    <ClInclude Include="src\screen\login_common.h">
+    <ClInclude Include="src\screen\common\login_common.h">
       <Filter>Screens</Filter>
     </ClInclude>
     <ClInclude Include="src\auth\json_lite.h">

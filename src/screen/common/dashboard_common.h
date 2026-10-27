@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../ui.h"
-#include "../auth/supabase_auth.h"
+#include "../../ui.h"
+#include "../../auth/supabase_auth.h"
 
 #include <string>
 

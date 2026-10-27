@@ -183,9 +183,9 @@ src/
   screen/
     loading.cpp             Startup check and sign-in progress
     login.cpp               Login form
-    login_common.{h,cpp}    Logo, card frame, step list, gradient buttons
+    common/login_common.{h,cpp} Logo, card frame, step list, gradient buttons
     dashboard.cpp           Shell: title bar, sidebar, footer, page switch
-    dashboard_common.{h,cpp} Theme, icons, widgets and shared state
+    common/dashboard_common.{h,cpp}Theme, icons, widgets and shared state
     home.cpp                Home page
     applications.cpp        Applications page
     downloads.cpp           Downloads page (loader update and component files)
@@ -223,9 +223,9 @@ Each screen lives in its own file under `src/screen`.
 | Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.h` |
 | Login form          | `src/screen/login.cpp`                             |
 | Loading screens     | `src/screen/loading.cpp`                           |
-| Dashboard pages     | `src/screen/<page>.cpp`, listed in `dash::Page` in `src/screen/dashboard_common.h` |
+| Dashboard pages     | `src/screen/<page>.cpp`, listed in `dash::Page` in `src/screen/common/dashboard_common.h` |
 | Sidebar and footer  | `draw_sidebar()`, `draw_footer()` in `src/screen/dashboard.cpp` |
-| Shared page state   | `ui::State` in `src/ui.h`, `dash::Shared` in `src/screen/dashboard_common.h` |
+| Shared page state   | `ui::State` in `src/ui.h`, `dash::Shared` in `src/screen/common/dashboard_common.h` |
 | Fonts and sizes     | `ui::load_fonts()` in `src/ui.cpp`                 |
 | Executable icon     | `src/Resources/app.ico`                            |
 | Version resource    | `src/Resources/version.rc`                         |
