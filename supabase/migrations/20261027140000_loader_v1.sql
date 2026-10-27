@@ -1,4 +1,4 @@
--- Sachin Dev Loader v1.0.0: final schema.
+-- Sachin Dev Loader v1.1.0: final schema.
 --
 --   profiles           one row per loader account (bound to auth.users)
 --   loader_config      one row: maintenance switch and release versions
@@ -49,11 +49,11 @@ create table if not exists public.loader_config (
   id smallint primary key default 1,
   maintenance boolean not null default false,
   maintenance_message text not null default '',
-  version text not null default '1.0.0',
+  version text not null default '1.1.0',
   constraint loader_config_single_row check (id = 1)
 );
 
-alter table public.loader_config add column if not exists version text not null default '1.0.0';
+alter table public.loader_config add column if not exists version text not null default '1.1.0';
 do $$
 begin
   if exists (select 1 from information_schema.columns
@@ -130,11 +130,11 @@ drop table if exists public.loader_check_log cascade;
 -- ------------------------------------------------------------- seed data ----
 
 insert into public.loader_config (id, maintenance, maintenance_message, version)
-values (1, false, '', '1.0.0')
+values (1, false, '', '1.1.0')
 on conflict (id) do nothing;
 
 insert into public.loader_components (name, version, description, status, requires_login, sort_order)
-values ('Core', '1.0.0', 'Loader core and session tools', 'online', true, 10)
+values ('Core', '1.1.0', 'Loader core and session tools', 'online', true, 10)
 on conflict (name) do update set
   version = excluded.version,
   description = excluded.description;
