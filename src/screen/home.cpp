@@ -1352,7 +1352,7 @@ void LoadPreferences()
 	wchar_t accent[48] = {};
 	GetPrivateProfileStringW(L"ui", L"accent", L"", accent, 48, path.c_str());
 	int r = 0, g = 0, b = 0;
-	if (std::swscanf(accent, L"%d,%d,%d", &r, &g, &b) == 3)
+	if (swscanf_s(accent,L"%d,%d,%d", &r, &g, &b) == 3)
 	{
 		state.accent[0] = clampf(static_cast<float>(r) / 255.0f, 0.0f, 1.0f);
 		state.accent[1] = clampf(static_cast<float>(g) / 255.0f, 0.0f, 1.0f);
