@@ -9,29 +9,29 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 // account checks pass.
 //
 // Actions:
-//   startup   { hwid, version, exe_hash }                 -> components, news, announcement, release
+//   startup   { hwid, version, exe_hash }                 -> components + release
 //   login     { username, password, hwid }                -> session
 //   bootstrap { access_token, hwid, version, exe_hash }   -> components + release
 //   refresh   { refresh_token, hwid }                     -> session
 //   check     { access_token, hwid }                      -> ok
 //   logout    { access_token }                            -> ok
 //
-// The function also mirrors the newest GitHub release into loader_config. That
-// keeps the version, download URL and SHA-256 in Supabase identical to the
-// published release without a workflow secret or a manual SQL step. The mirror
-// runs at most once every five minutes.
+// Releases: public.loader_config holds only latest_version and min_version. To
+// ship an update, change latest_version. This function finds the GitHub release
+// tagged v<latest_version> and sends its download URL and SHA-256 to the client,
+// which shows the update inside the loader. Nothing is written back to the
+// database.
 //
 // Deploy with verify_jwt = false: login and refresh carry no user JWT, and the
 // function authorises every request itself.
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
 const API_KEY = ReadEnvKey("SUPABASE_PUBLISHABLE_KEYS") || ReadEnvKey("SUPABASE_ANON_KEY");
-const SERVICE_KEY = ReadEnvKey("SUPABASE_SECRET_KEYS") || ReadEnvKey("SUPABASE_SERVICE_ROLE_KEY");
 
 const EMAIL_DOMAIN = "loader.local";
 const GITHUB_REPO = "sapkotasachin064-beep/Sachin-Dev-Loader";
 const GITHUB_TIMEOUT_MS = 4500;
-const SYNC_MEMORY_MS = 60_000;
+const RELEASE_MEMORY_MS = 300_000;
 const MAX_BODY_BYTES = 8192;
 const REQUEST_TIMEOUT_MS = 15000;
 
@@ -137,51 +137,6 @@ async function Post(
 	} finally {
 		clearTimeout(timer);
 	}
-}
-
-interface ServiceResult {
-	status: number;
-	data: unknown;
-	failed: boolean;
-}
-
-async function ServiceCall(path: string, body: unknown): Promise<ServiceResult> {
-	if (!SERVICE_KEY) return { status: 0, data: null, failed: true };
-
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-	try {
-		const response = await fetch(`${SUPABASE_URL}${path}`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"Accept": "application/json",
-				"apikey": SERVICE_KEY,
-				"Authorization": `Bearer ${SERVICE_KEY}`,
-			},
-			body: JSON.stringify(body),
-			signal: controller.signal,
-		});
-
-		const text = await response.text();
-		let data: unknown = null;
-		try {
-			data = text ? JSON.parse(text) : null;
-		} catch {
-			data = null;
-		}
-
-		return { status: response.status, data, failed: false };
-	} catch {
-		return { status: 0, data: null, failed: true };
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
-function ServiceRpc(name: string, body: unknown): Promise<ServiceResult> {
-	return ServiceCall(`/rest/v1/rpc/${name}`, body);
 }
 
 function MapAuthError(status: number, data: Record<string, unknown> | null): string {
@@ -403,75 +358,71 @@ async function BuildCall(
 	}
 
 	const data = response.data;
+	const latestVersion = Text(data.latest_version);
+
 	if (data.ok !== true) {
 		const code = Text(data.error);
-		const message = Text(data.message);
-		const error = message || MapAccountError(code);
-		const updateUrl = Text(data.update_url);
-		const releaseUrl = Text(data.release_url) || Text(data.url);
-		const sha256 = Text(data.sha256);
-		const latestVersion = Text(data.latest_version);
+		const error = Text(data.message) || MapAccountError(code);
 
-		if (updateUrl || releaseUrl) {
-			return Json({
-				ok: false,
-				code,
-				error,
-				download_url: updateUrl || releaseUrl,
-				update_url: updateUrl,
-				release_url: releaseUrl,
-				sha256,
-				latest_version: latestVersion,
-			});
-		}
-		return Fail(error);
+		// Maintenance and missing config carry no version data.
+		if (!latestVersion) return Fail(error);
+
+		const release = await FindRelease(latestVersion);
+		return Json({
+			ok: false,
+			code,
+			error,
+			latest_version: latestVersion,
+			update_url: release?.updateUrl ?? "",
+			release_url: release?.releaseUrl ?? "",
+			sha256: release?.sha256 ?? "",
+		});
 	}
 
+	const release = await FindRelease(latestVersion);
 	return Json({
 		ok: true,
 		username: Text(data.username),
 		expires_at: typeof data.expires_at === "number" ? data.expires_at : 0,
 		components: Array.isArray(data.components) ? data.components : [],
-		news: Array.isArray(data.news) ? data.news : [],
-		announcement: data.announcement && typeof data.announcement === "object" ? data.announcement : null,
-		support_url: Text(data.support_url),
-		latest_version: Text(data.latest_version),
-		update_url: Text(data.update_url),
-		release_url: Text(data.release_url) || Text(data.url),
-		sha256: Text(data.sha256),
+		latest_version: latestVersion,
+		update_url: release?.updateUrl ?? "",
+		release_url: release?.releaseUrl ?? "",
+		sha256: release?.sha256 ?? "",
 	});
 }
 
-// ------------------------------------------------------------ release sync ----
+// ---------------------------------------------------------------- release ----
 
 interface ReleaseInfo {
-	version: string;
 	updateUrl: string;
 	sha256: string;
 	releaseUrl: string;
 }
 
-let lastSyncAttempt = 0;
+interface CachedRelease {
+	at: number;
+	info: ReleaseInfo | null;
+}
 
-async function FetchLatestRelease(): Promise<ReleaseInfo | null> {
+const releaseCache = new Map<string, CachedRelease>();
+
+async function FetchRelease(version: string): Promise<ReleaseInfo | null> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), GITHUB_TIMEOUT_MS);
 	const headers = {
 		"Accept": "application/vnd.github+json",
-		"User-Agent": "SachinDevLoader-release-sync",
+		"User-Agent": "SachinDevLoader-release",
 	};
 
 	try {
-		const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+		const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/tags/v${version}`, {
 			headers,
 			signal: controller.signal,
 		});
 		if (!response.ok) return null;
 
 		const release = await response.json() as Record<string, unknown>;
-		const version = Text(release.tag_name).trim().replace(/^v/i, "");
-		if (!/^\d{1,4}(\.\d{1,4}){0,3}$/.test(version)) return null;
-
 		const assets = Array.isArray(release.assets) ? release.assets as Record<string, unknown>[] : [];
 		const exe = assets.find((asset) => Text(asset.name) === "ImGuiTemplate.exe");
 		const sums = assets.find((asset) => Text(asset.name) === "SHA256SUMS.txt");
@@ -484,12 +435,10 @@ async function FetchLatestRelease(): Promise<ReleaseInfo | null> {
 		const sumsResponse = await fetch(sumsUrl, { headers, signal: controller.signal });
 		if (!sumsResponse.ok) return null;
 
-		const sumsText = await sumsResponse.text();
-		const match = sumsText.match(/^([0-9a-fA-F]{64})\s+\*?ImGuiTemplate\.exe\s*$/m);
+		const match = (await sumsResponse.text()).match(/^([0-9a-fA-F]{64})\s+\*?ImGuiTemplate\.exe\s*$/m);
 		if (!match) return null;
 
 		return {
-			version,
 			updateUrl,
 			sha256: match[1].toLowerCase(),
 			releaseUrl: Text(release.html_url),
@@ -501,35 +450,23 @@ async function FetchLatestRelease(): Promise<ReleaseInfo | null> {
 	}
 }
 
-async function SyncRelease(): Promise<void> {
-	if (!SERVICE_KEY) return;
+// Release of the version set in loader_config.latest_version. Cached for five
+// minutes so GitHub is not called on every client start.
+async function FindRelease(version: string): Promise<ReleaseInfo | null> {
+	if (!/^\d{1,4}(\.\d{1,4}){0,3}$/.test(version)) return null;
 
+	const cached = releaseCache.get(version);
 	const now = Date.now();
-	if (now - lastSyncAttempt < SYNC_MEMORY_MS) return;
-	lastSyncAttempt = now;
+	if (cached && now - cached.at < RELEASE_MEMORY_MS) return cached.info;
 
-	try {
-		const begin = await ServiceRpc("loader_sync_begin", {});
-		if (begin.failed || begin.data !== true) return;
-
-		const release = await FetchLatestRelease();
-		if (!release) return;
-
-		await ServiceRpc("loader_sync_release", {
-			p_version: release.version,
-			p_update_url: release.updateUrl,
-			p_sha256: release.sha256,
-			p_release_url: release.releaseUrl,
-		});
-	} catch {
-		// Keep the last known release when GitHub or the database is unavailable.
-	}
+	const info = await FetchRelease(version);
+	releaseCache.set(version, { at: now, info });
+	return info;
 }
 
 async function HandleStartup(body: Record<string, unknown>, ip: string): Promise<Response> {
 	const build = ReadBuild(body);
 	if (typeof build === "string") return Fail(build);
-	await SyncRelease();
 	return await BuildCall("loader_startup", build, "", ip);
 }
 
@@ -539,7 +476,6 @@ async function HandleBootstrap(body: Record<string, unknown>, ip: string): Promi
 
 	const build = ReadBuild(body);
 	if (typeof build === "string") return Fail(build);
-	await SyncRelease();
 	return await BuildCall("loader_bootstrap", build, accessToken, ip);
 }
 

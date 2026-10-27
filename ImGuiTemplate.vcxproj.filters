@@ -36,10 +36,43 @@
     <ClCompile Include="src\ui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\screen\about.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\account.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\applications.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\dashboard.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\dashboard_common.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\dll_tools.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\downloads.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
     <ClCompile Include="src\screen\home.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
+    <ClCompile Include="src\screen\loading.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
     <ClCompile Include="src\screen\login.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\login_common.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\settings.cpp">
+      <Filter>Screens</Filter>
+    </ClCompile>
+    <ClCompile Include="src\screen\theme.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
     <ClCompile Include="src\gui\imgui.cpp">
@@ -67,6 +100,12 @@
     </ClInclude>
     <ClInclude Include="src\ui.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\screen\dashboard_common.h">
+      <Filter>Screens</Filter>
+    </ClInclude>
+    <ClInclude Include="src\screen\login_common.h">
+      <Filter>Screens</Filter>
     </ClInclude>
     <ClInclude Include="src\auth\json_lite.h">
       <Filter>Auth</Filter>

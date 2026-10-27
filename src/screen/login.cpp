@@ -1,68 +1,23 @@
-#include "../ui.h"
-#include "../Resources/resource.h"
-#include "auth/supabase_auth.h"
+#include "login_common.h"
+#include "../auth/supabase_auth.h"
 #include "imgui_internal.h"
 
-#include <wincodec.h>
-
-#include <cmath>
 #include <cstdio>
 #include <string>
-#include <vector>
+
+// Login form. The startup check and the sign-in progress live in loading.cpp;
+// this file owns the form, the remembered username and the sign-in flow.
 
 namespace screen_login {
 
 namespace {
 
 using namespace ui;
-
-// ------------------------------------------------------------------ theme ----
-
-const ImVec4 kLoginCard(0.020f, 0.031f, 0.067f, 1.0f);
-const ImVec4 kLoginBorder(0.24f, 0.36f, 0.78f, 0.45f);
-const ImVec4 kLoginField(0.035f, 0.051f, 0.094f, 1.0f);
-const ImVec4 kLoginFieldBorder(0.30f, 0.38f, 0.60f, 0.30f);
-const ImVec4 kLoginIcon(0.62f, 0.68f, 0.82f, 1.0f);
-const ImVec4 kLoginHint(0.52f, 0.58f, 0.72f, 1.0f);
-const ImVec4 kLoginBlue(0.17f, 0.33f, 0.86f, 1.0f);
-const ImVec4 kLoginPurple(0.52f, 0.29f, 0.93f, 1.0f);
-const ImVec4 kLoginSubtitle(0.36f, 0.53f, 0.95f, 1.0f);
-const ImVec4 kLoginLink(0.58f, 0.48f, 0.96f, 1.0f);
-
-constexpr int kLogoSize = 120;
+using namespace login_ui;
 
 // Startup check, then the form, then the login check. The dashboard opens only
 // after the server answered every login step.
 enum class Phase { Startup, Form, Signing };
-
-// Visual pacing for a loading screen. The worker reports the real stage; each
-// step stays on screen for at least its step time so the user can read it.
-struct LoadingAnim
-{
-	int shown = 0;           // index of the active step; == count when all done
-	double step_time = 0.0;  // when the shown step became active
-	float progress = 0.0f;
-	double done_time = -1.0; // when the bar reached 100%
-};
-
-constexpr double kStepSeconds = 0.32;
-// The startup check finishes in about one second when the network answers fast.
-constexpr double kStartupStepSeconds = 0.28;
-constexpr double kDoneHoldSeconds = 0.15;
-constexpr double kRestartCountdownSeconds = 3.0;
-constexpr double kUpdateRetrySeconds = 2.5;
-
-const char* const kStartupSteps[] = {
-	"Connecting to server...",
-	"Checking loader integrity...",
-	"Checking for update...",
-};
-
-const char* const kLoginSteps[] = {
-	"Authenticating...",
-	"Verifying account and device...",
-	"Running security checks...",
-};
 
 struct LoginState
 {
@@ -73,20 +28,12 @@ struct LoginState
 	bool logged_in = false;
 	bool focus_username = true;
 	bool focus_password = false;
-	bool restart_failed = false;
-	double update_ready_time = -1.0;
-	double update_retry_time = -1.0;
-	int update_retries = 0;
-	std::string update_notice;
-	double update_notice_time = -1.0;
 	std::string message;
 	bool message_is_error = false;
 	Phase phase = Phase::Startup;
-	LoadingAnim anim;
 };
 
 LoginState login;
-ID3D11ShaderResourceView* logo_texture = nullptr;
 
 // Remembering a username only. Passwords and session tokens never touch disk.
 std::wstring login_settings_path(bool create_directory)
@@ -146,99 +93,6 @@ void store_remembered_username(const char* username, bool remember)
 	wide.resize(static_cast<std::size_t>(length - 1));
 
 	WritePrivateProfileStringW(L"login", L"username", wide.c_str(), path.c_str());
-}
-
-// Decodes the embedded Slogo.png (IDR_LOGO) with WIC, scales it to kLogoSize
-// and uploads it as a Direct3D 11 texture.
-bool load_logo()
-{
-	HMODULE module = GetModuleHandleW(nullptr);
-	HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(IDR_LOGO), RT_RCDATA);
-	if (!resource)
-		return false;
-
-	HGLOBAL handle = LoadResource(module, resource);
-	void* bytes = handle ? LockResource(handle) : nullptr;
-	const DWORD size = SizeofResource(module, resource);
-	if (!bytes || size == 0)
-		return false;
-
-	const bool com_ready = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
-
-	IWICImagingFactory* factory = nullptr;
-	IWICStream* stream = nullptr;
-	IWICBitmapDecoder* decoder = nullptr;
-	IWICBitmapFrameDecode* frame = nullptr;
-	IWICFormatConverter* converter = nullptr;
-	IWICBitmapScaler* scaler = nullptr;
-	IWICFormatConverter* output = nullptr;
-
-	const UINT side = static_cast<UINT>(kLogoSize);
-	std::vector<unsigned char> pixels(static_cast<size_t>(side) * side * 4);
-
-	const bool decoded =
-		SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
-		SUCCEEDED(factory->CreateStream(&stream)) &&
-		SUCCEEDED(stream->InitializeFromMemory(static_cast<BYTE*>(bytes), size)) &&
-		SUCCEEDED(factory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) &&
-		SUCCEEDED(decoder->GetFrame(0, &frame)) &&
-		SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
-		SUCCEEDED(converter->Initialize(frame, GUID_WICPixelFormat32bppPRGBA, WICBitmapDitherTypeNone,
-			nullptr, 0.0, WICBitmapPaletteTypeCustom)) &&
-		SUCCEEDED(factory->CreateBitmapScaler(&scaler)) &&
-		SUCCEEDED(scaler->Initialize(converter, side, side, WICBitmapInterpolationModeFant)) &&
-		SUCCEEDED(factory->CreateFormatConverter(&output)) &&
-		SUCCEEDED(output->Initialize(scaler, GUID_WICPixelFormat32bppPRGBA, WICBitmapDitherTypeNone,
-			nullptr, 0.0, WICBitmapPaletteTypeCustom)) &&
-		SUCCEEDED(output->CopyPixels(nullptr, side * 4, static_cast<UINT>(pixels.size()), pixels.data()));
-
-	if (output) output->Release();
-	if (scaler) scaler->Release();
-	if (converter) converter->Release();
-	if (frame) frame->Release();
-	if (decoder) decoder->Release();
-	if (stream) stream->Release();
-	if (factory) factory->Release();
-	if (com_ready)
-		CoUninitialize();
-
-	if (!decoded)
-		return false;
-
-	// Scaled premultiplied so edges stay clean; ImGui blends straight alpha.
-	for (size_t i = 0; i < pixels.size(); i += 4)
-	{
-		const unsigned alpha = pixels[i + 3];
-		if (alpha == 0 || alpha == 255)
-			continue;
-		for (size_t c = 0; c < 3; ++c)
-		{
-			const unsigned value = pixels[i + c] * 255u / alpha;
-			pixels[i + c] = static_cast<unsigned char>(value > 255u ? 255u : value);
-		}
-	}
-
-	D3D11_TEXTURE2D_DESC desc{};
-	desc.Width = side;
-	desc.Height = side;
-	desc.MipLevels = 1;
-	desc.ArraySize = 1;
-	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	desc.SampleDesc.Count = 1;
-	desc.Usage = D3D11_USAGE_DEFAULT;
-	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-	D3D11_SUBRESOURCE_DATA data{};
-	data.pSysMem = pixels.data();
-	data.SysMemPitch = side * 4;
-
-	ID3D11Texture2D* texture = nullptr;
-	if (!g_pd3dDevice || FAILED(g_pd3dDevice->CreateTexture2D(&desc, &data, &texture)) || !texture)
-		return false;
-
-	const HRESULT result = g_pd3dDevice->CreateShaderResourceView(texture, nullptr, &logo_texture);
-	texture->Release();
-	return SUCCEEDED(result);
 }
 
 void icon_user(ImVec2 c, ImU32 color)
@@ -381,61 +235,6 @@ bool login_link(const char* id, ImVec2 position, const char* value)
 	return clicked;
 }
 
-bool login_button(const char* id, const Rect& r, const char* value)
-{
-	ImGui::SetCursorScreenPos(r.min);
-	const bool clicked = ImGui::InvisibleButton(id, ImVec2(width(r), height(r)));
-	const bool hovered = ImGui::IsItemHovered();
-	const bool held = ImGui::IsItemActive();
-	if (hovered)
-		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-
-	const float shift = held ? -0.04f : (hovered ? 0.06f : 0.0f);
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	if (hovered)
-		draw->AddRect(ImVec2(r.min.x - 2.0f, r.min.y - 2.0f), ImVec2(r.max.x + 2.0f, r.max.y + 2.0f),
-			color_u32(fade(kLoginPurple, 0.30f)), 12.0f, 0, 3.0f);
-	gradient_box(r, lift(kLoginBlue, shift), lift(kLoginPurple, shift), 10.0f);
-
-	const float size = 20.0f;
-	const float label_w = text_width(font.semibold, size, value);
-	const float arrow_w = 16.0f;
-	const float total = label_w + 12.0f + arrow_w;
-	const float x = r.min.x + (width(r) - total) * 0.5f;
-	const float y = r.min.y + (height(r) - size) * 0.5f - 1.0f;
-	text(font.semibold, size, ImVec2(x, y), kText, value);
-
-	const ImU32 white = IM_COL32_WHITE;
-	const float ax = x + label_w + 12.0f;
-	const float ay = r.min.y + height(r) * 0.5f;
-	draw->AddLine(ImVec2(ax, ay), ImVec2(ax + arrow_w, ay), white, 2.0f);
-	draw->AddLine(ImVec2(ax + arrow_w - 6.0f, ay - 6.0f), ImVec2(ax + arrow_w, ay), white, 2.0f);
-	draw->AddLine(ImVec2(ax + arrow_w - 6.0f, ay + 6.0f), ImVec2(ax + arrow_w, ay), white, 2.0f);
-	return clicked;
-}
-
-void fill_wave(ImVec2 start, ImVec2 c1, ImVec2 c2, ImVec2 end, float bottom, const ImVec4& color)
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->PathLineTo(ImVec2(start.x, bottom));
-	draw->PathLineTo(start);
-	draw->PathBezierCubicCurveTo(c1, c2, end, 32);
-	draw->PathLineTo(ImVec2(end.x, bottom));
-	draw->PathFillConcave(color_u32(color));
-}
-
-void draw_login_waves(float w, float h, float time)
-{
-	const float s = std::sin(time * 0.5f) * 8.0f;
-
-	fill_wave(ImVec2(0.0f, h - 150.0f), ImVec2(90.0f, h - 160.0f + s), ImVec2(170.0f, h - 30.0f),
-		ImVec2(330.0f, h), h, fade(kLoginBlue, 0.10f));
-	fill_wave(ImVec2(w, h - 140.0f), ImVec2(w - 90.0f, h - 150.0f - s), ImVec2(w - 180.0f, h - 20.0f),
-		ImVec2(w - 340.0f, h), h, fade(kLoginBlue, 0.09f));
-	fill_wave(ImVec2(0.0f, h - 70.0f), ImVec2(w * 0.35f, h - 20.0f + s), ImVec2(w * 0.65f, h - 95.0f - s),
-		ImVec2(w, h - 55.0f), h, fade(kLoginPurple, 0.06f));
-}
-
 void submit_login()
 {
 	if (sdauth::LoginStatus() == sdauth::StatusWorking)
@@ -468,8 +267,7 @@ void submit_login()
 	if (sdauth::LoginStatus() == sdauth::StatusWorking)
 	{
 		login.phase = Phase::Signing;
-		login.anim = LoadingAnim();
-		login.anim.step_time = ImGui::GetTime();
+		screen_loading::BeginSigning();
 	}
 	else
 	{
@@ -495,470 +293,6 @@ void finish_login()
 	state.status = std::string("Signed in as ") + session.username + ".";
 	sdauth::ResetStatus();
 	ResizeWindow(static_cast<int>(app::kWidth), static_cast<int>(app::kHeight));
-}
-
-// One-line confirmation after the update helper restarted this build. It fades
-// out on its own so it never covers the form. The hold starts on the form, so
-// the startup check cannot use up the visible time.
-void draw_update_notice(bool start_timer)
-{
-	if (login.update_notice.empty())
-		return;
-
-	const double now = ImGui::GetTime();
-	if (start_timer && login.update_notice_time < 0.0)
-		login.update_notice_time = now;
-
-	float alpha = 1.0f;
-	if (login.update_notice_time >= 0.0)
-	{
-		constexpr double kHoldSeconds = 7.0;
-		constexpr double kFadeSeconds = 0.8;
-		const double elapsed = now - login.update_notice_time;
-		if (elapsed >= kHoldSeconds + kFadeSeconds)
-		{
-			login.update_notice.clear();
-			return;
-		}
-		if (elapsed > kHoldSeconds)
-			alpha = static_cast<float>(1.0 - (elapsed - kHoldSeconds) / kFadeSeconds);
-	}
-
-	const float w = text_width(font.body, 16.0f, login.update_notice.c_str());
-	text(font.body, 16.0f, ImVec2(app::kLoginWidth * 0.5f - w * 0.5f, 232.0f),
-		fade(kGreen, alpha), login.update_notice.c_str());
-}
-
-// Card background, window buttons, logo, title and subtitle. Shared by the
-// form and both loading screens.
-void draw_frame()
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const float w = app::kLoginWidth;
-	const float h = app::kLoginHeight;
-	const float cx = w * 0.5f;
-
-	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(w, h), color_u32(kLoginCard));
-	draw_login_waves(w, h, static_cast<float>(ImGui::GetTime()));
-	draw->AddRect(ImVec2(0.5f, 0.5f), ImVec2(w - 0.5f, h - 0.5f), color_u32(kLoginBorder), 8.0f, 0, 1.0f);
-
-	// Drag strip and window buttons.
-	ImGui::SetCursorScreenPos(ImVec2(0.0f, 0.0f));
-	ImGui::InvisibleButton("##login_drag", ImVec2(w - 84.0f, 44.0f));
-	if (ImGui::IsItemClicked())
-		StartWindowDrag();
-
-	if (window_button("##login_minimize", rect(w - 78.0f, 8.0f, w - 46.0f, 40.0f), false))
-		ShowWindow(g_hwnd, SW_MINIMIZE);
-	if (window_button("##login_close", rect(w - 40.0f, 8.0f, w - 8.0f, 40.0f), true))
-		PostQuitMessage(0);
-
-	// Logo.
-	const float half = kLogoSize * 0.5f;
-	const float logo_y = 98.0f;
-	if (logo_texture)
-		draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<intptr_t>(logo_texture)),
-			ImVec2(cx - half, logo_y - half), ImVec2(cx + half, logo_y + half));
-	else
-		gradient_text(font.title, 72.0f, ImVec2(cx - 20.0f, logo_y - 40.0f), "S", kLoginPurple, kLoginBlue);
-
-	// Title.
-	const float title_size = 40.0f;
-	const float first_w = text_width(font.title, title_size, "Sachin ");
-	const float title_w = first_w + text_width(font.title, title_size, "Loader");
-	const ImVec2 title_pos(cx - title_w * 0.5f, 158.0f);
-	text(font.title, title_size, title_pos, kText, "Sachin ");
-	gradient_text(font.title, title_size, ImVec2(title_pos.x + first_w, title_pos.y), "Loader",
-		kLoginPurple, lift(kLoginBlue, 0.12f));
-
-	const char* subtitle = "Software Apps, Game Loader";
-	const float subtitle_w = text_width(font.body, 18.0f, subtitle);
-	text(font.body, 18.0f, ImVec2(cx - subtitle_w * 0.5f, 208.0f), kLoginSubtitle, subtitle);
-
-	const char* footer = "Secure  -  Private  -  Fast";
-	const float footer_w = text_width(font.body, 16.0f, footer);
-	const float footer_y = h - 46.0f < 540.0f ? 540.0f : h - 46.0f;
-	text(font.body, 16.0f, ImVec2(cx - footer_w * 0.5f, footer_y), fade(kLoginSubtitle, 0.85f), footer);
-
-	draw_update_notice(login.phase == Phase::Form);
-}
-
-// ---------------------------------------------------------------- loading ----
-
-// Moves the visible step toward the real one, one step per step_seconds.
-// real_active is the index of the step the worker is on; count means all done.
-void advance_loading(LoadingAnim& anim, int real_active, int count, double step_seconds = kStepSeconds)
-{
-	const double now = ImGui::GetTime();
-	if (anim.shown < real_active && now - anim.step_time >= step_seconds)
-	{
-		++anim.shown;
-		anim.step_time = now;
-	}
-
-	// The bar creeps inside the active step so it never looks frozen.
-	float target = static_cast<float>(anim.shown) / static_cast<float>(count);
-	if (anim.shown < count)
-	{
-		const float creep_seconds = step_seconds > 1.6 ? static_cast<float>(step_seconds) : 1.6f;
-		const float creep = clampf(static_cast<float>(now - anim.step_time) / creep_seconds, 0.0f, 0.8f);
-		target += creep / static_cast<float>(count);
-	}
-
-	anim.progress += (target - anim.progress) * clampf(ImGui::GetIO().DeltaTime * 6.0f, 0.0f, 1.0f);
-	if (anim.shown >= count && anim.progress > 0.995f)
-	{
-		anim.progress = 1.0f;
-		if (anim.done_time < 0.0)
-			anim.done_time = now;
-	}
-}
-
-bool loading_finished(const LoadingAnim& anim)
-{
-	return anim.done_time >= 0.0 && ImGui::GetTime() - anim.done_time >= kDoneHoldSeconds;
-}
-
-enum class StepState { Pending, Active, Done, Failed };
-
-void step_indicator(ImVec2 c, StepState step)
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const float radius = 10.0f;
-
-	switch (step)
-	{
-	case StepState::Done:
-	{
-		const int start = draw->VtxBuffer.Size;
-		draw->AddCircleFilled(c, radius, IM_COL32_WHITE, 24);
-		ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
-			ImVec2(c.x - radius, c.y), ImVec2(c.x + radius, c.y), color_u32(kLoginBlue), color_u32(kLoginPurple));
-		draw->AddLine(ImVec2(c.x - 4.5f, c.y + 0.5f), ImVec2(c.x - 1.5f, c.y + 3.5f), IM_COL32_WHITE, 2.0f);
-		draw->AddLine(ImVec2(c.x - 1.5f, c.y + 3.5f), ImVec2(c.x + 4.5f, c.y - 3.5f), IM_COL32_WHITE, 2.0f);
-		break;
-	}
-	case StepState::Active:
-	{
-		const float t = static_cast<float>(ImGui::GetTime());
-		draw->AddCircle(c, radius, color_u32(fade(kLoginPurple, 0.35f)), 24, 2.0f);
-		draw->PathArcTo(c, radius, t * 6.0f, t * 6.0f + IM_PI * 0.7f, 16);
-		draw->PathStroke(color_u32(lift(kLoginPurple, 0.15f)), 0, 2.0f);
-		const float pulse = 0.75f + 0.25f * std::sin(t * 5.0f);
-		draw->AddCircleFilled(c, 4.0f * pulse, color_u32(kLoginPurple), 16);
-		break;
-	}
-	case StepState::Failed:
-		draw->AddCircleFilled(c, radius, color_u32(kRed), 24);
-		draw->AddLine(ImVec2(c.x - 3.5f, c.y - 3.5f), ImVec2(c.x + 3.5f, c.y + 3.5f), IM_COL32_WHITE, 2.0f);
-		draw->AddLine(ImVec2(c.x + 3.5f, c.y - 3.5f), ImVec2(c.x - 3.5f, c.y + 3.5f), IM_COL32_WHITE, 2.0f);
-		break;
-	default:
-		draw->AddCircle(c, radius, color_u32(fade(kLoginIcon, 0.45f)), 24, 1.6f);
-		break;
-	}
-}
-
-// Step list and progress bar. failed_step < 0 means no failure.
-void draw_loading(const char* const* steps, int count, const LoadingAnim& anim, int failed_step,
-	const std::string& caption, bool caption_is_error)
-{
-	const float w = app::kLoginWidth;
-	const float cx = w * 0.5f;
-	const float fx = 70.0f;
-
-	for (int i = 0; i < count; ++i)
-	{
-		StepState step = StepState::Pending;
-		if (i == failed_step)
-			step = StepState::Failed;
-		else if (i < anim.shown)
-			step = StepState::Done;
-		else if (i == anim.shown && failed_step < 0)
-			step = StepState::Active;
-
-		const float y = 262.0f + i * 42.0f;
-		step_indicator(ImVec2(fx + 10.0f, y + 10.0f), step);
-
-		ImVec4 color = lift(kLoginIcon, 0.18f);
-		if (step == StepState::Active)
-			color = kText;
-		else if (step == StepState::Pending)
-			color = fade(kLoginIcon, 0.6f);
-		else if (step == StepState::Failed)
-			color = kRed;
-		text(font.body, 18.0f, ImVec2(fx + 34.0f, y), color, steps[i]);
-	}
-
-	// Progress bar.
-	const Rect track = rect(60.0f, 410.0f, w - 60.0f, 418.0f);
-	box(track, kLoginField, 4.0f);
-	const float fill = clampf(anim.progress, 0.0f, 1.0f);
-	if (fill > 0.01f)
-	{
-		const Rect bar = rect(track.min.x, track.min.y, track.min.x + width(track) * fill, track.max.y);
-		gradient_box(bar, failed_step >= 0 ? kRed : kLoginBlue, failed_step >= 0 ? kRed : kLoginPurple, 4.0f);
-	}
-
-	char percent[16];
-	std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(fill * 100.0f + 0.5f));
-	const float pw = text_width(font.body, 15.0f, percent);
-	text(font.body, 15.0f, ImVec2(track.max.x - pw, 426.0f), kLoginHint, percent);
-
-	if (!caption.empty())
-	{
-		const ImVec4 color = caption_is_error ? kRed : kLoginSubtitle;
-		const float mw = text_width(font.body, 15.0f, caption.c_str());
-		const float x = caption_is_error ? cx - mw * 0.5f : track.min.x;
-		text(font.body, 15.0f, ImVec2(x, caption_is_error ? 446.0f : 426.0f), color, caption.c_str());
-	}
-}
-
-// Faded button shown while a loading screen runs.
-void busy_button(const Rect& r, const char* value)
-{
-	gradient_box(r, fade(kLoginBlue, 0.45f), fade(kLoginPurple, 0.45f), 10.0f);
-	text_center(font.semibold, 20.0f, r, fade(kText, 0.75f), value);
-}
-
-void reset_update_ui()
-{
-	login.restart_failed = false;
-	login.update_ready_time = -1.0;
-	login.update_retry_time = -1.0;
-	login.update_retries = 0;
-}
-
-void retry_startup()
-{
-	login.anim = LoadingAnim();
-	login.anim.step_time = ImGui::GetTime();
-	reset_update_ui();
-	sdauth::StartStartup();
-}
-
-// Download progress and the automatic 3 second restart. A failed optional
-// update is retried silently; a required update keeps retrying until it works.
-void draw_update_panel()
-{
-	const float w = app::kLoginWidth;
-	const float fx = 60.0f;
-	const float fw = w - fx * 2.0f;
-	const std::string version = sdauth::StartupLatestVersion();
-	const int status = sdauth::UpdateStatus();
-	const bool installed = status == sdauth::UpdateReady;
-	const bool failed = status == sdauth::UpdateFailed;
-	const int progress = sdauth::UpdateProgress();
-	const double now = ImGui::GetTime();
-
-	pill(rect(fx, 250.0f, fx + 148.0f, 272.0f),
-		installed ? "UPDATE READY" : failed ? "RETRYING UPDATE" : "UPDATING LOADER",
-		installed ? kGreen : kLoginSubtitle);
-
-	text(font.title, 26.0f, ImVec2(fx, 292.0f), kText,
-		installed ? "Restarting loader" : "Updating loader");
-
-	if (!version.empty())
-	{
-		char line[80];
-		std::snprintf(line, sizeof(line), "New version: v%s", version.c_str());
-		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, line);
-	}
-	else
-	{
-		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is ready.");
-	}
-	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		installed ? "The latest build is installed." : "Downloading and installing automatically.");
-
-	const Rect track = rect(fx, 410.0f, fx + fw, 418.0f);
-	box(track, kLoginField, 4.0f);
-	const float fill = clampf(static_cast<float>(progress) / 100.0f, 0.0f, 1.0f);
-	if (fill > 0.01f)
-	{
-		const Rect bar = rect(track.min.x, track.min.y, track.min.x + width(track) * fill, track.max.y);
-		gradient_box(bar, kLoginBlue, kLoginPurple, 4.0f);
-	}
-
-	char percent[16];
-	std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(fill * 100.0f + 0.5f));
-	const float pw = text_width(font.body, 15.0f, percent);
-	text(font.body, 15.0f, ImVec2(track.max.x - pw, 426.0f), kLoginHint, percent);
-
-	std::string caption = sdauth::UpdateMessage();
-	if (login.restart_failed)
-		caption = "The restart did not start. Use the button below.";
-	else if (failed)
-		caption = "Download did not finish. Retrying automatically...";
-	else if (caption.empty())
-		caption = "Downloading update...";
-	text(font.body, 15.0f, ImVec2(track.min.x, 426.0f), kLoginHint, caption.c_str());
-
-	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
-
-	if (installed)
-	{
-		login.update_retry_time = -1.0;
-		if (login.update_ready_time < 0.0)
-		{
-			login.update_ready_time = now;
-			login.restart_failed = false;
-		}
-
-		if (login.restart_failed)
-		{
-			if (login_button("##update_restart", button, "Retry restart"))
-			{
-				login.restart_failed = !sdauth::RestartLoader();
-				if (!login.restart_failed)
-					PostQuitMessage(0);
-			}
-			return;
-		}
-
-		const double elapsed = now - login.update_ready_time;
-		if (elapsed >= kRestartCountdownSeconds)
-		{
-			login.restart_failed = !sdauth::RestartLoader();
-			if (!login.restart_failed)
-				PostQuitMessage(0);
-			login.update_ready_time = -1.0;
-			return;
-		}
-
-		int remaining = static_cast<int>(kRestartCountdownSeconds - elapsed);
-		if (remaining < 1)
-			remaining = 1;
-		char label[64];
-		std::snprintf(label, sizeof(label), "Restarting in %d...", remaining);
-		busy_button(button, label);
-		return;
-	}
-
-	login.update_ready_time = -1.0;
-
-	if (failed)
-	{
-		if (login.update_retry_time < 0.0)
-		{
-			login.update_retry_time = now + kUpdateRetrySeconds;
-			++login.update_retries;
-		}
-
-		const double wait = login.update_retry_time - now;
-		if (wait <= 0.0)
-		{
-			login.update_retry_time = -1.0;
-			sdauth::StartUpdate();
-			busy_button(button, "Retrying update...");
-			return;
-		}
-
-		int remaining = static_cast<int>(wait + 0.999);
-		if (remaining < 1)
-			remaining = 1;
-		char label[64];
-		std::snprintf(label, sizeof(label), "Retrying in %d...", remaining);
-		busy_button(button, label);
-		return;
-	}
-
-	busy_button(button, "Updating...");
-}
-
-void draw_startup()
-{
-	const int count = static_cast<int>(sizeof(kStartupSteps) / sizeof(kStartupSteps[0]));
-	const int status = sdauth::StartupStatus();
-	const int stage = sdauth::StartupStageValue();
-	const bool failed = status == sdauth::StatusError;
-	const bool ready = status == sdauth::StatusOk;
-	const std::string update_url = sdauth::StartupDownloadUrl();
-	const bool required = sdauth::StartupUpdateRequired();
-	int update_status = sdauth::UpdateStatus();
-
-	// A newer build (or a rejected one) updates without a click. Optional
-	// updates that keep failing are skipped so the form still opens.
-	if (update_status == sdauth::UpdateFailed && !required && login.update_retries >= 3)
-	{
-		sdauth::SkipUpdate();
-		update_status = sdauth::UpdateSkipped;
-	}
-
-	const bool show_update = !update_url.empty() && update_status != sdauth::UpdateSkipped &&
-		(required || sdauth::StartupUpdateAvailable());
-
-	if (show_update)
-	{
-		if (update_status == sdauth::UpdateIdle)
-		{
-			reset_update_ui();
-			sdauth::StartUpdate();
-		}
-		draw_update_panel();
-		return;
-	}
-
-	// StartupConnecting (1) is step 0; StartupDone means every step is done.
-	const int real_active = ready ? count : stage - 1;
-	if (!failed)
-		advance_loading(login.anim, real_active, count, kStartupStepSeconds);
-
-	int failed_step = failed ? (login.anim.shown < count ? login.anim.shown : count - 1) : -1;
-	std::string caption = failed ? sdauth::StartupMessage() : std::string("Preparing loader...");
-	if (caption.empty())
-		caption = failed ? "Startup check failed. Retry." : "Preparing loader...";
-
-	draw_loading(kStartupSteps, count, login.anim, failed_step, caption, failed);
-
-	const float fx = 60.0f;
-	const float fw = app::kLoginWidth - fx * 2.0f;
-	const Rect button = rect(fx, 472.0f, fx + fw, 530.0f);
-
-	if (failed)
-	{
-		if (login_button("##startup_retry", button, "Retry"))
-			retry_startup();
-		return;
-	}
-
-	busy_button(button, "Loading...");
-
-	if (loading_finished(login.anim))
-	{
-		login.phase = Phase::Form;
-		login.anim = LoadingAnim();
-	}
-}
-
-void draw_signing()
-{
-	const int count = static_cast<int>(sizeof(kLoginSteps) / sizeof(kLoginSteps[0]));
-	const int status = sdauth::LoginStatus();
-
-	if (status == sdauth::StatusError)
-	{
-		// Back to the form with the server's reason. Nothing was unlocked.
-		login.phase = Phase::Form;
-		login.message = sdauth::LoginMessage();
-		if (login.message.empty())
-			login.message = "Sign-in failed. Try again.";
-		login.message_is_error = true;
-		login.focus_password = true;
-		SecureZeroMemory(login.password, sizeof(login.password));
-		sdauth::ResetStatus();
-		return;
-	}
-
-	const bool ok = status == sdauth::StatusOk && sdauth::HasSession();
-	const int real_active = ok ? count : sdauth::LoginStage() - 1;
-	advance_loading(login.anim, real_active, count);
-
-	draw_loading(kLoginSteps, count, login.anim, -1, "Signing in...", false);
-	busy_button(rect(60.0f, 472.0f, app::kLoginWidth - 60.0f, 530.0f), "Please wait");
-
-	if (ok && loading_finished(login.anim))
-		finish_login();
 }
 
 // ------------------------------------------------------------------- form ----
@@ -999,20 +333,47 @@ void draw_form()
 		text(font.body, 15.0f, ImVec2(cx - mw * 0.5f, 446.0f), color, login.message.c_str());
 	}
 
-	const bool submitted = login_button("##login", rect(fx, 472.0f, fx + fw, 530.0f), "Login");
+	const bool submitted = GradientButton("##login", rect(fx, 472.0f, fx + fw, 530.0f), "Login");
 	if (submitted || enter)
 		submit_login();
 }
 
 void draw_login_screen()
 {
-	draw_frame();
+	DrawFrame(login.phase == Phase::Form);
 
 	switch (login.phase)
 	{
-	case Phase::Startup: draw_startup(); break;
-	case Phase::Signing: draw_signing(); break;
-	default: draw_form(); break;
+	case Phase::Startup:
+		if (screen_loading::Startup() == screen_loading::Result::Done)
+			login.phase = Phase::Form;
+		break;
+
+	case Phase::Signing:
+	{
+		const screen_loading::Result result = screen_loading::Signing();
+		if (result == screen_loading::Result::Failed)
+		{
+			// Back to the form with the server's reason. Nothing was unlocked.
+			login.phase = Phase::Form;
+			login.message = sdauth::LoginMessage();
+			if (login.message.empty())
+				login.message = "Sign-in failed. Try again.";
+			login.message_is_error = true;
+			login.focus_password = true;
+			SecureZeroMemory(login.password, sizeof(login.password));
+			sdauth::ResetStatus();
+		}
+		else if (result == screen_loading::Result::Done)
+		{
+			finish_login();
+		}
+		break;
+	}
+
+	default:
+		draw_form();
+		break;
 	}
 }
 
@@ -1020,29 +381,24 @@ void draw_login_screen()
 
 void Init()
 {
-	load_logo();
+	EnsureLogo();
 	load_login_settings();
 
 	if (g_updated)
 	{
 		char notice[64];
 		std::snprintf(notice, sizeof(notice), "Updated to v%s", app::kVersion);
-		login.update_notice = notice;
+		SetNotice(notice);
 	}
 
 	// First loading screen: build check and components before the form.
 	login.phase = Phase::Startup;
-	login.anim = LoadingAnim();
-	sdauth::StartStartup();
+	screen_loading::BeginStartup();
 }
 
 void Shutdown()
 {
-	if (logo_texture)
-	{
-		logo_texture->Release();
-		logo_texture = nullptr;
-	}
+	ReleaseLogo();
 }
 
 void Render()

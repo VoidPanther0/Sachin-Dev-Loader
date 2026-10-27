@@ -50,9 +50,6 @@ std::atomic<int> g_stage(static_cast<int>(sdauth::StageNone));
 std::string g_message;
 sdauth::Session g_session;
 std::vector<sdauth::Component> g_components;
-std::vector<sdauth::NewsItem> g_news;
-sdauth::Announcement g_announcement;
-std::string g_support_url;
 std::atomic<long long> g_expires_at(0);
 std::atomic<int> g_launch_status(static_cast<int>(sdauth::StatusIdle));
 std::atomic<int> g_launch_progress(0);
@@ -967,48 +964,17 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 	return true;
 }
 
-// News, announcement, support link and account expiry from a successful
-// startup or bootstrap answer. Only a signed-in answer carries expires_at.
+// Account expiry from a successful bootstrap answer. Only a signed-in answer
+// carries expires_at.
 void ParseExtras(const std::string& body, bool signed_in) {
+	if (!signed_in)
+		return;
+
 	jsonlite::Value root;
 	if (!jsonlite::Parse(body, root))
 		return;
 
-	std::vector<sdauth::NewsItem> news;
-	const jsonlite::Value* list = root.find("news");
-	if (list && list->is_array()) {
-		for (const jsonlite::Value& item : list->array) {
-			sdauth::NewsItem entry;
-			entry.version = item.get_string("version");
-			entry.date = item.get_string("date");
-			entry.tag = item.get_string("tag", "UPDATE");
-			entry.title = item.get_string("title");
-			entry.body = item.get_string("body");
-			if (!entry.title.empty())
-				news.push_back(entry);
-		}
-	}
-
-	sdauth::Announcement announcement;
-	const jsonlite::Value* banner = root.find("announcement");
-	if (banner && banner->is_object()) {
-		announcement.message = banner->get_string("message");
-		announcement.level = banner->get_string("level", "info");
-	}
-
-	std::string support = root.get_string("support_url");
-	if (support.compare(0, 8, "https://") != 0)
-		support.clear();
-
-	{
-		std::lock_guard<std::mutex> lock(g_mutex);
-		g_news = news;
-		g_announcement = announcement;
-		g_support_url = support;
-	}
-
-	if (signed_in)
-		g_expires_at.store(static_cast<long long>(root.get_number("expires_at", 0.0)));
+	g_expires_at.store(static_cast<long long>(root.get_number("expires_at", 0.0)));
 }
 
 // Server-side bootstrap: account, HWID, client version and executable hash are
@@ -1458,21 +1424,6 @@ int LoginStage() {
 std::vector<Component> Components() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	return g_components;
-}
-
-std::vector<NewsItem> News() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_news;
-}
-
-Announcement GetAnnouncement() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_announcement;
-}
-
-std::string SupportUrl() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_support_url;
 }
 
 long long AccountExpiresAt() {

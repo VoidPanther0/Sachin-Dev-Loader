@@ -38,7 +38,7 @@ ImU32 color_u32(const ImVec4& color);
 
 struct State
 {
-	int page = 0;            // 0 = Home, 1 = Library, 2 = News, 3 = Settings
+	int page = 0;            // dash::Page: Home, Applications, Downloads, DLL Tools, ...
 	float accent[3] = { 0.42f, 0.56f, 1.00f };
 	float fps = 0.0f;
 	std::string status = "Ready.";
@@ -99,10 +99,31 @@ void apply_accent();
 } // namespace ui
 
 // ------------------------------------------------------------------ screens ---
+//
+// One file per screen in src/screen:
+//   loading.cpp        startup check and sign-in progress
+//   login.cpp          login form
+//   dashboard.cpp      window shell: title bar, sidebar, footer
+//   home.cpp, applications.cpp, downloads.cpp, dll_tools.cpp, theme.cpp,
+//   account.cpp, settings.cpp, about.cpp   dashboard pages
+
+namespace screen_loading {
+
+enum class Result { Running, Failed, Done };
+
+// First loading screen: connect, build check, update check.
+void BeginStartup();
+Result Startup();
+
+// Second loading screen: password check, device binding, security checks.
+void BeginSigning();
+Result Signing();
+
+} // namespace screen_loading
 
 namespace screen_login {
 
-// Loads the embedded logo texture, remembered username and startup check.
+// Loads the embedded logo texture, remembered username and starts the startup check.
 void Init();
 
 // Releases the logo texture.
@@ -121,12 +142,12 @@ void SessionLost();
 
 } // namespace screen_login
 
-namespace screen_home {
+namespace screen_dashboard {
 
 // Loads the saved accent color and interface options from settings.ini.
 void LoadPreferences();
 
-// Draws the main dashboard.
+// Draws the main window: shell plus the current page.
 void Render();
 
-} // namespace screen_home
+} // namespace screen_dashboard

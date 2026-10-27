@@ -10,8 +10,9 @@
 // Shared UI helpers and app lifecycle.
 //
 // Screens:
-//   src/screen/login.cpp   startup check, login form, signing phases
-//   src/screen/home.cpp    main dashboard
+//   src/screen/loading.cpp   startup check and sign-in progress
+//   src/screen/login.cpp     login form
+//   src/screen/dashboard.cpp window shell and page dispatch (pages: see ui.h)
 
 namespace ui {
 
@@ -320,7 +321,7 @@ void app::Init()
 	ui::load_fonts();
 	ui::apply_style();
 
-	screen_home::LoadPreferences();
+	screen_dashboard::LoadPreferences();
 
 	sdauth::Init();
 	screen_login::Init();
@@ -368,7 +369,7 @@ void app::Render()
 		return;
 	}
 
-	screen_home::Render();
+	screen_dashboard::Render();
 
 	ImGui::End();
 	ImGui::PopStyleVar(2);

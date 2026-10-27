@@ -5,8 +5,8 @@ IDI_APPICON ICON "app.ico"
 IDR_LOGO RCDATA "Slogo.png"
 
 1 VERSIONINFO
-FILEVERSION 0,3,2,0
-PRODUCTVERSION 0,3,2,0
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
 FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
 FILEFLAGS VS_FF_DEBUG
@@ -23,12 +23,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Sachin Dev"
             VALUE "FileDescription", "Sachin Dev Loader"
-            VALUE "FileVersion", "0.3.2"
+            VALUE "FileVersion", "1.0.0"
             VALUE "InternalName", "SachinDevLoader"
             VALUE "LegalCopyright", "Copyright (C) 2026"
             VALUE "OriginalFilename", "ImGuiTemplate.exe"
             VALUE "ProductName", "Sachin Dev Loader"
-            VALUE "ProductVersion", "0.3.2"
+            VALUE "ProductVersion", "1.0.0"
         END
     END
     BLOCK "VarFileInfo"

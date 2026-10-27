@@ -1,23 +1,23 @@
-# Dear ImGui Template
+# Sachin Dev Loader
 
 A Windows desktop loader built with C++20, Win32, DirectX 11, and Dear ImGui.
-It uses a frameless dark window, a Supabase login screen, and a blank home
-template with a sidebar, session data and a free content area.
+It has a frameless dark window, loading screens, a Supabase login and a
+dashboard with eight pages: Home, Applications, Downloads, DLL Tools, Theme,
+Account, Settings and About.
 
-Use this repository as a starting point for your own loader. The interface is
-local. Supabase is used only for authentication, build checks, components and
-automatic updates; no database key is embedded in the executable.
+Supabase is used only for authentication, build checks, components and the
+update version; no database key is embedded in the executable.
 
 ## Features
 
-- Frameless 1160x700 window with a custom title bar and rounded corners
-- Login screen separate from the home shell
-- Blank home template: sidebar, session card, empty content area and footer
-- Automatic updates from the startup check: download, SHA-256 verify, replace
-  the running exe and restart
-- Custom dark theme with a shared accent color
-- Supabase username and password login before the main screen
-- Segoe UI fonts loaded from the system font directory
+- Frameless window with a custom title bar and rounded corners
+- One source file per screen in `src/screen`: loading, login, dashboard shell
+  and each dashboard page
+- Update offered inside the loader (Downloads page): download, SHA-256 verify,
+  replace the running exe and restart
+- Maintenance mode with a custom message, set from the database
+- Custom dark theme with a selectable accent color
+- Supabase username and password login with hardware binding
 - Static C++ runtime, so the executable does not need the VC++ Redistributable
 - Embedded `asInvoker` application manifest, so the app never requests elevation
 - Dear ImGui 1.93.1 WIP vendored in `src/gui` (no submodules, no package manager)
@@ -55,138 +55,96 @@ select public.admin_reset_hwid('username');
 The loader shows two loading screens. Every step is decided by the server.
 
 1. **Startup** (when the exe opens): *Connecting to server*, *Checking loader
-   integrity*, *Downloading components*. The client sends its version and the
+   integrity*, *Checking for update*. The client sends its version and the
    SHA-256 of its own exe to `loader-auth` (`action: "startup"`), which calls
-   `public.loader_startup()`. Maintenance mode, an old version or an unknown
-   exe hash stops the loader with a Retry button. An older build updates
-   automatically; see [Automatic updates](#automatic-updates).
+   `public.loader_startup()`. Maintenance mode, a version below `min_version` or
+   an unknown exe hash stops the loader with the server's message and a Retry
+   button. A build below `min_version` updates itself on this screen.
 2. **Login** (after the Login button): *Authenticating*, *Verifying account
    and device*, *Running security checks*. After the password check,
    `action: "bootstrap"` calls `public.loader_bootstrap()` with the user token.
    It re-runs `account_status()` (ban, HWID) and the build checks. If any check
-   fails, the token is revoked and the form shows the reason. The home screen
+   fails, the token is revoked and the form shows the reason. The dashboard
    opens only after every step passes.
 
-Apply `supabase/migrations/20261026120000_loader_cleanup.sql`, then redeploy the
-function:
+Apply the schema once and deploy the function:
 
 ```bash
 supabase db push
 supabase functions deploy loader-auth --no-verify-jwt
 ```
 
-Manage the checks from the SQL editor:
+`supabase/migrations/20261027140000_loader_v1.sql` is the whole schema. It is
+safe to run again; accounts, passwords and hardware bindings are kept.
+
+## Database
+
+Three tables, nothing else.
+
+| Table               | Purpose                                                       |
+| ------------------- | ------------------------------------------------------------- |
+| `profiles`          | One row per account: ban, hardware ID, expiry, login count    |
+| `loader_config`     | One row: `maintenance`, `maintenance_message`, `min_version`, `latest_version` |
+| `loader_components` | Apps, games and tools released to the client                  |
+
+Run the `admin_*` helpers as the `postgres` role; they are not reachable from
+the client.
 
 ```sql
--- Publish a build. latest_version makes allowed clients update early;
--- min_version is the hard cutoff that blocks very old clients.
-update public.loader_config
-set latest_version = '0.2',
-    min_version = '0.2',
-    update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/download/v0.2/ImGuiTemplate.exe',
-    update_sha256 = '<sha256>',
-    release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/latest';
+-- Maintenance mode stops every client and shows the message.
+update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM' where id = 1;
+update public.loader_config set maintenance = false where id = 1;
 
--- Maintenance mode stops every client without offering an update.
-update public.loader_config set maintenance = true, maintenance_message = 'Back at 6 PM';
-
--- Components shown to the client. requires_login = true hides one until login.
-insert into public.loader_components (name, version, description, requires_login)
-values ('Core', '0.2', 'Base runtime', false);
-```
-
-An exe hash that is not a valid SHA-256 gets `bad_build` and cannot start.
-
-The client uses a publishable key in `src/auth/supabase_auth.cpp`. That key is safe to
-ship. Never put the `service_role` key in the application.
-
-## Content, news and admin
-
-Everything on the home screen is controlled from the SQL editor. Apply
-`supabase/migrations/20261027000000_loader_features.sql` and redeploy
-`loader-auth` (same commands as above). Run the `admin_*` helpers as the
-`postgres` role; they are not reachable from the client.
-
-```sql
 -- Launchable component. The loader downloads the exe, checks the SHA-256,
 -- caches it in %APPDATA%\SachinDevLoader\components and starts it.
 -- status: online, updating, offline or beta. Only online/beta can launch.
 select public.admin_upsert_component(
-  'MyTool', '1.0', 'What it does',
+  'MyTool', '1.0.0', 'What it does',
   'https://example.com/MyTool.exe', '<sha256>', 'online');
 select public.admin_set_component_status('MyTool', 'updating');
 select public.admin_remove_component('MyTool');
-select * from public.admin_list_components();
 
--- News page and the "What's new" card. tag: FEATURE, FIX, UPDATE, RELEASE, NOTICE.
-select public.admin_publish_news('Title', 'Body text', 'FEATURE', '0.4.0');
-select * from public.admin_list_news();
-select public.admin_remove_news(1);
-
--- Banner next to the page title, and the Support link in the sidebar.
-select public.admin_set_announcement('Maintenance at 6 PM', 'warning');  -- or 'info'
-select public.admin_set_announcement('');                                -- clear
-select public.admin_set_support_url('https://discord.gg/your-invite');
-
--- Account expiry. Expired accounts are signed out within five minutes.
+-- Accounts.
+select public.admin_create_account('username', 'password');
+select public.admin_set_password('username', 'new-password');
+select public.admin_reset_hwid('username');
+select public.admin_set_banned('username', true);
 select public.admin_set_expiry('username', 30);    -- 30 days from now
 select public.admin_extend_expiry('username', 30); -- add 30 days
 select public.admin_set_expiry('username', null);  -- lifetime
 select * from public.admin_list_accounts();
 ```
 
-Download URLs and hashes are only sent to signed-in accounts. The built-in news
-list in `src/screen/home.cpp` is used only when the server sends none.
+Download URLs and hashes are only sent to signed-in accounts.
 
-## Automatic updates
+## Updates
 
-Every launch calls the startup check before the login form. When the server
-reports a newer `latest_version`, the loader starts the download immediately,
-shows the progress, verifies `update_sha256`, then renames itself to `<exe>.old`
-(Windows allows renaming a running exe), writes the new exe under the original
-name and restarts it automatically. The form stays locked until the new build
-is running. On launch the new build deletes `<exe>.old` and shows
-`Updated to v<version>`. Current builds do not use a temp-folder helper or
-command-line switches. The exe keeps the legacy `--apply-update` helper so 0.1
-builds that used that method can still jump to the current release.
+To ship a new version:
 
-To publish an update:
-
-1. Bump `app::kVersion` in `src/app.h`, and the version strings in
+1. Bump `app::kVersion` in `src/app.h` and the version strings in
    `src/Resources/version.rc`.
-2. Commit and push a matching tag, for example `v0.3.1`. The workflow checks
-   that the tag and `app::kVersion` match, builds and signs the exe, creates the
-   GitHub Release, then writes `latest_version`, `update_url`, `update_sha256`
-   and `release_url` to `public.loader_config`.
-3. Optionally raise `min_version` when very old clients must be blocked.
-
-Automatic publishing needs these repository secrets:
-
-| Secret                         | Value                                      |
-| ------------------------------ | ------------------------------------------ |
-| `SUPABASE_URL`                 | `https://xdtidxtkvrmurzogkxuv.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY`    | Supabase service_role key                  |
-
-The service key is used only by the GitHub Actions runner. Never put it in the
-application. Without the secrets the release still builds, but `loader_config`
-must be updated by hand:
+2. Push a matching tag, for example `v1.0.1`. The workflow builds the exe and
+   publishes it as a GitHub Release with `SHA256SUMS.txt`.
+3. Change the version in the database:
 
 ```sql
-update public.loader_config
-set latest_version = '0.3.1',
-    update_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/download/v0.3.1/ImGuiTemplate.exe',
-    update_sha256 = '<sha256>',
-    release_url = 'https://github.com/sapkotasachin064-beep/Sachin-Dev-Loader/releases/tag/v0.3.1'
-where id = 1;
+update public.loader_config set latest_version = '1.0.1' where id = 1;
 ```
 
-A failed download or hash check shows only Retry update. The user cannot reach
-the login form on an outdated build. Automatic updates work only when
-`update_url` is a direct exe link and `update_sha256` matches it. Very old 0.1
-builds that predate the automatic update flow must download one build by hand;
-builds that already have the updater, including later 0.1 builds, update
-themselves.
+`loader-auth` finds the GitHub release tagged `v1.0.1` and sends its download
+URL and SHA-256 to the client. Loaders on an older version show an update chip
+in the page header and an **Update now** button on the Downloads page. The
+update downloads, is verified with SHA-256, replaces the running exe (the old
+one becomes `<exe>.old`) and restarts the loader.
 
+To force everyone onto the new build, raise `min_version` as well:
+
+```sql
+update public.loader_config set latest_version = '1.0.1', min_version = '1.0.1' where id = 1;
+```
+
+Builds below `min_version` cannot reach the login form; they update on the
+startup screen.
 
 ## Requirements
 
@@ -219,27 +177,41 @@ msbuild ImGuiTemplate.sln /m /p:Configuration=Debug /p:Platform=x64
 
 ```
 src/
-  main.cpp            Win32 window, Direct3D 11 device, frame loop
-  ui.cpp              Shared UI helpers and app lifecycle
-  ui.h                Shared UI API and screen entry points
+  main.cpp                  Win32 window, Direct3D 11 device, frame loop
+  ui.cpp                    Shared UI helpers and app lifecycle
+  ui.h                      Shared UI API and screen entry points
   screen/
-    login.cpp         Startup, automatic update UI, login form and signing
-    home.cpp          Home shell: title bar, sidebar, pages and footer
+    loading.cpp             Startup check and sign-in progress
+    login.cpp               Login form
+    login_common.{h,cpp}    Logo, card frame, step list, gradient buttons
+    dashboard.cpp           Shell: title bar, sidebar, footer, page switch
+    dashboard_common.{h,cpp} Theme, icons, widgets and shared state
+    home.cpp                Home page
+    applications.cpp        Applications page
+    downloads.cpp           Downloads page (loader update and component files)
+    dll_tools.cpp           DLL Tools page (read-only PE check)
+    theme.cpp               Theme page
+    account.cpp             Account page
+    settings.cpp            Settings page
+    about.cpp               About page
   auth/
-    supabase_auth.cpp Supabase login, session refresh, HWID, build check, update
-    supabase_auth.h   Auth and update API used by the screens
-    json_lite.h       Minimal JSON parser for Supabase responses
-  app.h               Shared globals and app entry points
-  Resources/          app.ico, app.manifest, version.rc, resource.h
-  gui/                Vendored Dear ImGui
-    backends/         Win32 + DirectX 11 platform/renderer backends
+    supabase_auth.cpp       Supabase login, session refresh, HWID, build check, update
+    supabase_auth.h         Auth and update API used by the screens
+    json_lite.h             Minimal JSON parser for Supabase responses
+  app.h                     Shared globals and app entry points
+  Resources/                app.ico, Slogo.png, app.manifest, version.rc, resource.h
+  gui/                      Vendored Dear ImGui
+    backends/               Win32 + DirectX 11 platform/renderer backends
+supabase/
+  migrations/               One schema file
+  functions/loader-auth/    Edge Function
 ImGuiTemplate.sln
 ImGuiTemplate.vcxproj
 ```
 
 `main.cpp` owns the window and rendering. `ui.cpp` implements the shared
-helpers and the app lifecycle, then dispatches to one screen at a time. Each
-screen lives in its own file under `src/screen`.
+helpers and the app lifecycle, then shows the login window or the dashboard.
+Each screen lives in its own file under `src/screen`.
 
 ## Customize
 
@@ -249,10 +221,11 @@ screen lives in its own file under `src/screen`.
 | Window size         | `app::kWidth`, `app::kHeight` in `src/app.h`       |
 | Version label       | `app::kVersion` in `src/app.h`                     |
 | Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.h` |
-| Login screen        | `src/screen/login.cpp`                             |
-| Home pages          | `draw_home_page()`, `draw_library_page()`, `draw_settings_page()` in `src/screen/home.cpp` |
-| Sidebar and footer  | `draw_sidebar()`, `draw_footer()` in `src/screen/home.cpp` |
-| Shared page state   | `ui::State` in `src/ui.h`                          |
+| Login form          | `src/screen/login.cpp`                             |
+| Loading screens     | `src/screen/loading.cpp`                           |
+| Dashboard pages     | `src/screen/<page>.cpp`, listed in `dash::Page` in `src/screen/dashboard_common.h` |
+| Sidebar and footer  | `draw_sidebar()`, `draw_footer()` in `src/screen/dashboard.cpp` |
+| Shared page state   | `ui::State` in `src/ui.h`, `dash::Shared` in `src/screen/dashboard_common.h` |
 | Fonts and sizes     | `ui::load_fonts()` in `src/ui.cpp`                 |
 | Executable icon     | `src/Resources/app.ico`                            |
 | Version resource    | `src/Resources/version.rc`                         |
@@ -268,8 +241,8 @@ update the build commands in `.github/workflows/build-release.yml`. Also update
 Push a version tag:
 
 ```bash
-git tag v0.3.1
-git push origin v0.3.1
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 The workflow builds `Release|x64` and uploads a two-file artifact:
