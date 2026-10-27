@@ -140,10 +140,6 @@ void draw_sidebar()
 				nav_badge(y, badge);
 			}
 		}
-		else if (entry.page == PageDownloads && update_available())
-		{
-			nav_badge(y, "NEW");
-		}
 		y += kNavStep;
 	}
 
@@ -218,7 +214,6 @@ void Render()
 		shared.session_start = GetTickCount64();
 		shared.search[0] = '\0';
 		shared.selected = 0;
-		shared.restart_ready_time = -1.0;
 		state.page = PageHome;
 	}
 	last_frame = frame;

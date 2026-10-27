@@ -6,16 +6,16 @@
 
 // Loading screens shown in the login window.
 //
-//   Startup  runs when the exe starts: connect, build check, update check. A
-//            build the server rejects as outdated or modified cannot reach the
-//            login form, so this screen downloads the required build, replaces
-//            the exe and restarts. Maintenance and network errors stop here too,
-//            with the server's message and a Retry button.
+//   Startup  runs when the exe starts: connect, build check, update check. When
+//            the server has a newer build (latest_version above this one) or
+//            rejects this one as outdated or modified, this screen shows the
+//            update, downloads it, replaces the exe and restarts by itself.
+//            Maintenance and network errors stop here too, with the server's
+//            message and a Retry button.
 //   Signing  runs after the Login button: password check, device binding and
 //            the security checks. Every step is decided by the server.
 //
-// An optional newer build (latest_version above this one) never stops here. The
-// dashboard offers it on the Downloads page.
+// This is the only place the loader updates. The dashboard never shows it.
 
 namespace screen_loading {
 
@@ -24,10 +24,15 @@ namespace {
 using namespace ui;
 using namespace login_ui;
 
-// The startup check finishes in about one second when the network answers fast.
-constexpr double kStartupStepSeconds = 0.28;
-constexpr double kRestartCountdownSeconds = 3.0;
-constexpr double kUpdateRetrySeconds = 2.5;
+// Slow enough to read every step; the server answer is never the limit.
+constexpr double kStartupStepSeconds = 0.75;
+// The update notice stays up before the download starts, and the finished
+// notice stays up before the restart.
+constexpr double kUpdateNoticeSeconds = 3.0;
+constexpr double kRestartCountdownSeconds = 4.0;
+constexpr double kUpdateRetrySeconds = 3.0;
+// An optional update that keeps failing must not lock the login form.
+constexpr int kOptionalUpdateAttempts = 3;
 
 const char* const kStartupSteps[] = {
 	"Connecting to server...",
@@ -46,8 +51,10 @@ struct LoadingState
 	LoadingAnim startup;
 	LoadingAnim signing;
 	bool restart_failed = false;
+	double update_notice_time = -1.0;
 	double update_ready_time = -1.0;
 	double update_retry_time = -1.0;
+	int update_failures = 0;
 };
 
 LoadingState loading;
@@ -55,8 +62,10 @@ LoadingState loading;
 void reset_update_ui()
 {
 	loading.restart_failed = false;
+	loading.update_notice_time = -1.0;
 	loading.update_ready_time = -1.0;
 	loading.update_retry_time = -1.0;
+	loading.update_failures = 0;
 }
 
 Rect action_button()
@@ -65,9 +74,10 @@ Rect action_button()
 	return rect(fx, 472.0f, app::kLoginWidth - fx, 530.0f);
 }
 
-// Download progress and the automatic 3 second restart for a required update. A
-// failed download is retried until it works, because the form cannot open
-// before this build is replaced.
+// Update notice, download progress and the automatic restart. A failed download
+// is retried; a required update retries until it works because the form cannot
+// open before this build is replaced, an optional one is dropped after a few
+// failures.
 void draw_update_panel()
 {
 	const float w = app::kLoginWidth;
@@ -80,7 +90,7 @@ void draw_update_panel()
 	const double now = ImGui::GetTime();
 
 	pill(rect(fx, 250.0f, fx + 148.0f, 272.0f),
-		installed ? "UPDATE READY" : failed ? "RETRYING UPDATE" : "UPDATE REQUIRED",
+		installed ? "UPDATE READY" : failed ? "RETRYING UPDATE" : "UPDATE FOUND",
 		installed ? kGreen : kLoginSubtitle);
 
 	text(font.title, 26.0f, ImVec2(fx, 292.0f), kText,
@@ -97,7 +107,7 @@ void draw_update_panel()
 		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is required.");
 	}
 	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		installed ? "The latest build is installed." : "Downloading and installing automatically.");
+		installed ? "The latest build is installed." : "It installs automatically, then the loader restarts.");
 
 	DrawBar(rect(fx, 410.0f, fx + fw, 418.0f), static_cast<float>(sdauth::UpdateProgress()) / 100.0f);
 
@@ -106,6 +116,8 @@ void draw_update_panel()
 		caption = "The restart did not start. Use the button below.";
 	else if (failed)
 		caption = "Download did not finish. Retrying automatically...";
+	else if (status == sdauth::UpdateIdle)
+		caption = "Update found. Starting the download...";
 	else if (caption.empty())
 		caption = "Downloading update...";
 	text(font.body, 15.0f, ImVec2(fx, 426.0f), kLoginHint, caption.c_str());
@@ -162,6 +174,7 @@ void draw_update_panel()
 		if (wait <= 0.0)
 		{
 			loading.update_retry_time = -1.0;
+			++loading.update_failures;
 			sdauth::StartUpdate();
 			BusyButton(button, "Retrying update...");
 			return;
@@ -172,6 +185,29 @@ void draw_update_panel()
 			remaining = 1;
 		char label[64];
 		std::snprintf(label, sizeof(label), "Retrying in %d...", remaining);
+		BusyButton(button, label);
+		return;
+	}
+
+	// Idle: hold the notice so it can be read, then start the download.
+	if (status == sdauth::UpdateIdle)
+	{
+		if (loading.update_notice_time < 0.0)
+			loading.update_notice_time = now;
+
+		const double wait = kUpdateNoticeSeconds - (now - loading.update_notice_time);
+		if (wait <= 0.0)
+		{
+			sdauth::StartUpdate();
+			BusyButton(button, "Starting...");
+			return;
+		}
+
+		int remaining = static_cast<int>(wait + 0.999);
+		if (remaining < 1)
+			remaining = 1;
+		char label[64];
+		std::snprintf(label, sizeof(label), "Updating in %d...", remaining);
 		BusyButton(button, label);
 		return;
 	}
@@ -196,22 +232,28 @@ Result Startup()
 	const bool failed = status == sdauth::StatusError;
 	const bool ready = status == sdauth::StatusOk;
 
-	// Only a build the server rejects as outdated or modified updates here.
-	if (sdauth::StartupUpdateRequired() && !sdauth::StartupDownloadUrl().empty())
-	{
-		if (sdauth::UpdateStatus() == sdauth::UpdateIdle)
-		{
-			reset_update_ui();
-			sdauth::StartUpdate();
-		}
-		draw_update_panel();
-		return Result::Running;
-	}
-
 	// StartupConnecting (1) is step 0; StartupDone means every step is done.
 	const int real_active = ready ? count : stage - 1;
 	if (!failed)
 		Advance(loading.startup, real_active, count, kStartupStepSeconds);
+
+	// A newer build, or one the server rejects as outdated or modified, updates
+	// here once every step has been shown, so the steps stay readable.
+	const bool answered = (ready && Finished(loading.startup)) || (failed && sdauth::StartupUpdateRequired());
+	if (answered && sdauth::StartupUpdateAvailable() && !sdauth::StartupDownloadUrl().empty())
+	{
+		// An optional update that keeps failing is dropped so login stays open.
+		if (!sdauth::StartupUpdateRequired() && loading.update_failures >= kOptionalUpdateAttempts &&
+			sdauth::UpdateStatus() == sdauth::UpdateFailed)
+		{
+			sdauth::SkipUpdate();
+		}
+		else
+		{
+			draw_update_panel();
+			return Result::Running;
+		}
+	}
 
 	const int failed_step = failed ? (loading.startup.shown < count ? loading.startup.shown : count - 1) : -1;
 	std::string caption = failed ? sdauth::StartupMessage() : std::string("Preparing loader...");

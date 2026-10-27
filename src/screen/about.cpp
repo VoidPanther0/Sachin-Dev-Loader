@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-// About: version, update state and credits.
+// About: version and credits.
 
 namespace dash {
 
@@ -42,34 +42,14 @@ void draw_build_card(const Rect& card)
 {
 	card_frame(card, "Build", "");
 
-	const std::string latest = sdauth::StartupLatestVersion();
 	const std::string components = std::to_string(sdauth::Components().size());
 
 	float y = card.min.y + 74.0f;
 	info_row(card, y, "VERSION", app::kVersion, kText);
 	y += 38.0f;
-	info_row(card, y, "LATEST", latest.empty() ? app::kVersion : latest.c_str(), kText);
-	y += 38.0f;
-	info_row(card, y, "UPDATE", update_text(), update_color());
-	y += 38.0f;
 	info_row(card, y, "COMPONENTS", components.c_str(), kText);
 	y += 38.0f;
 	info_row(card, y, "BUILT", __DATE__, kText);
-
-	ImGui::SetCursorScreenPos(ImVec2(card.min.x + 28.0f, card.max.y - 58.0f));
-	if (update_available())
-	{
-		if (ImGui::Button("Go to Downloads", ImVec2(180.0f, 36.0f)))
-			state.page = PageDownloads;
-		if (ImGui::IsItemHovered())
-			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-	}
-	else
-	{
-		ImGui::BeginDisabled();
-		secondary_button("Up to date", ImVec2(180.0f, 36.0f));
-		ImGui::EndDisabled();
-	}
 }
 
 void draw_links_card(const Rect& card)

@@ -247,29 +247,6 @@ bool component_launchable(const sdauth::Component& component)
 	return !component.download_url.empty() && (component.status == "online" || component.status == "beta");
 }
 
-bool update_available()
-{
-	return sdauth::StartupUpdateAvailable();
-}
-
-const char* update_text()
-{
-	if (update_available())
-		return "Update available";
-	if (sdauth::UpdateStatus() == sdauth::UpdateFailed)
-		return "Retrying update";
-	return "Up to date";
-}
-
-ImVec4 update_color()
-{
-	if (update_available())
-		return accent_color();
-	if (sdauth::UpdateStatus() == sdauth::UpdateFailed)
-		return kOrange;
-	return kGreen;
-}
-
 int access_days_left()
 {
 	const long long expires = sdauth::AccountExpiresAt();
@@ -335,23 +312,18 @@ std::string session_time()
 std::string diagnostics_text()
 {
 	const sdauth::Session session = sdauth::GetSession();
-	const std::string latest = sdauth::StartupLatestVersion();
 	const std::string date = access_date();
 
 	char value[768];
 	std::snprintf(value, sizeof(value),
 		"Sachin Loader diagnostics\r\n"
 		"Version: %s\r\n"
-		"Latest: %s\r\n"
-		"Update: %s\r\n"
 		"Account: %s\r\n"
 		"Access until: %s\r\n"
 		"Components: %d\r\n"
 		"Device: %s\r\n"
 		"FPS: %d\r\n",
 		app::kVersion,
-		latest.empty() ? app::kVersion : latest.c_str(),
-		update_text(),
 		session.username.empty() ? "guest" : session.username.c_str(),
 		date.empty() ? "no expiry" : date.c_str(),
 		static_cast<int>(sdauth::Components().size()),
@@ -391,24 +363,6 @@ void draw_page_header(const char* title, const char* subtitle)
 	text(font.caption, 12.0f, ImVec2(kContentLeft, 124.0f), kMuted, subtitle);
 
 	pill(rect(kContentRight - 136.0f, 94.0f, kContentRight, 118.0f), "SESSION ACTIVE", kGreen);
-
-	// New build from loader_config.latest_version: chip that opens Downloads.
-	if (!update_available())
-		return;
-
-	char label[64];
-	const std::string latest = sdauth::StartupLatestVersion();
-	std::snprintf(label, sizeof(label), "UPDATE %s%s", latest.empty() ? "" : "v", latest.c_str());
-	const float chip_w = text_width(font.caption, 10.0f, label) + 36.0f;
-	const Rect chip = rect(kContentRight - 152.0f - chip_w, 94.0f, kContentRight - 152.0f, 118.0f);
-
-	ImGui::SetCursorScreenPos(chip.min);
-	const bool clicked = ImGui::InvisibleButton("##header_update", ImVec2(width(chip), height(chip)));
-	if (ImGui::IsItemHovered())
-		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-	pill(chip, label, accent_color());
-	if (clicked)
-		state.page = PageDownloads;
 }
 
 void draw_empty_state(const Rect& area, const char* title, const char* subtitle)

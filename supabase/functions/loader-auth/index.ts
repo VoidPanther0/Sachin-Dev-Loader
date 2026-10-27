@@ -32,6 +32,7 @@ const EMAIL_DOMAIN = "loader.local";
 const GITHUB_REPO = "sapkotasachin064-beep/Sachin-Dev-Loader";
 const GITHUB_TIMEOUT_MS = 4500;
 const RELEASE_MEMORY_MS = 300_000;
+const RELEASE_MISS_MEMORY_MS = 20_000;
 const MAX_BODY_BYTES = 8192;
 const REQUEST_TIMEOUT_MS = 15000;
 
@@ -368,10 +369,15 @@ async function BuildCall(
 		if (!latestVersion) return Fail(error);
 
 		const release = await FindRelease(latestVersion);
+
+		// The update is required but its release is not published yet.
+		const unpublished = !release && (code === "outdated" || code === "bad_build");
 		return Json({
 			ok: false,
 			code,
-			error,
+			error: unpublished
+				? `Version ${latestVersion} is being published. Try again in a few minutes`
+				: error,
 			latest_version: latestVersion,
 			update_url: release?.updateUrl ?? "",
 			release_url: release?.releaseUrl ?? "",
@@ -457,7 +463,7 @@ async function FindRelease(version: string): Promise<ReleaseInfo | null> {
 
 	const cached = releaseCache.get(version);
 	const now = Date.now();
-	if (cached && now - cached.at < RELEASE_MEMORY_MS) return cached.info;
+	if (cached && now - cached.at < (cached.info ? RELEASE_MEMORY_MS : RELEASE_MISS_MEMORY_MS)) return cached.info;
 
 	const info = await FetchRelease(version);
 	releaseCache.set(version, { at: now, info });

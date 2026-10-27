@@ -5,19 +5,14 @@
 #include <string>
 #include <vector>
 
-// Downloads: the loader update (installed version, latest version from
-// loader_config, download and restart) and the component files cached on this
-// PC.
+// Downloads: the component files cached on this PC. Loader updates happen on
+// the startup loading screen only.
 
 namespace dash {
 
 using namespace ui;
 
 namespace {
-
-constexpr double kRestartCountdownSeconds = 3.0;
-
-bool restart_failed = false;
 
 // Same naming rule as the launcher: letters, digits, dash and underscore.
 std::wstring component_file(const std::string& name)
@@ -63,143 +58,6 @@ std::string format_size(long long bytes)
 	else
 		std::snprintf(value, sizeof(value), "%lld KB", (bytes + 1023LL) / 1024LL);
 	return value;
-}
-
-// ----------------------------------------------------------- update card ----
-
-void draw_update_card(const Rect& card)
-{
-	box(card, kCard, 14.0f, &kBorder);
-	text(font.semibold, 17.0f, ImVec2(card.min.x + 28.0f, card.min.y + 22.0f), kText, "Loader update");
-
-	const int status = sdauth::UpdateStatus();
-	const bool available = update_available();
-	const bool downloading = status == sdauth::UpdateDownloading;
-	const bool ready = status == sdauth::UpdateReady;
-	const bool failed = status == sdauth::UpdateFailed;
-	const double now = ImGui::GetTime();
-
-	const std::string latest_text = sdauth::StartupLatestVersion();
-	const std::string latest = latest_text.empty() ? std::string(app::kVersion) : latest_text;
-
-	// State pill next to the title.
-	const char* pill_text = "UP TO DATE";
-	ImVec4 pill_color = kGreen;
-	if (ready) { pill_text = "READY TO RESTART"; pill_color = kGreen; }
-	else if (downloading) { pill_text = "DOWNLOADING"; pill_color = accent_color(); }
-	else if (failed) { pill_text = "FAILED"; pill_color = kRed; }
-	else if (available) { pill_text = "UPDATE AVAILABLE"; pill_color = accent_color(); }
-	const float pill_w = text_width(font.caption, 10.0f, pill_text) + 36.0f;
-	pill(rect(card.min.x + 150.0f, card.min.y + 22.0f, card.min.x + 150.0f + pill_w, card.min.y + 44.0f),
-		pill_text, pill_color);
-
-	char installed_line[64];
-	std::snprintf(installed_line, sizeof(installed_line), "Installed   v%s", app::kVersion);
-	text(font.body, 14.0f, ImVec2(card.min.x + 28.0f, card.min.y + 62.0f), kText, installed_line);
-
-	char latest_line[64];
-	std::snprintf(latest_line, sizeof(latest_line), "Latest         v%s", latest.c_str());
-	text(font.body, 14.0f, ImVec2(card.min.x + 28.0f, card.min.y + 86.0f), available ? accent_color() : kText,
-		latest_line);
-
-	// Message line.
-	std::string message;
-	ImVec4 message_color = kMuted;
-	if (restart_failed)
-	{
-		message = "The restart did not start. Use the button.";
-		message_color = kRed;
-	}
-	else if (downloading || ready || failed)
-	{
-		message = sdauth::UpdateMessage();
-		if (failed)
-			message_color = kRed;
-	}
-	else if (available)
-	{
-		message = "A new build is ready. It is verified with SHA-256 before it is installed.";
-	}
-	else if (latest != app::kVersion)
-	{
-		message = "A newer version is set, but its release is not published yet.";
-	}
-	else
-	{
-		message = "You are on the latest version.";
-	}
-	text(font.caption, 11.0f, ImVec2(card.min.x + 28.0f, card.min.y + 118.0f), message_color, message.c_str());
-
-	const Rect bar = rect(card.min.x + 28.0f, card.max.y - 28.0f, card.max.x - 240.0f, card.max.y - 22.0f);
-	if (downloading || ready)
-		progress_bar(bar, static_cast<float>(sdauth::UpdateProgress()) / 100.0f, accent_color());
-
-	// Action button.
-	const Rect button = rect(card.max.x - 200.0f, card.min.y + 62.0f, card.max.x - 28.0f, card.min.y + 104.0f);
-	ImGui::SetCursorScreenPos(button.min);
-	const ImVec2 size(width(button), height(button));
-
-	if (ready)
-	{
-		if (shared.restart_ready_time < 0.0)
-		{
-			shared.restart_ready_time = now;
-			restart_failed = false;
-		}
-
-		const double elapsed = now - shared.restart_ready_time;
-		bool restart = ImGui::Button("Restart now", size);
-		if (!restart && !restart_failed && elapsed >= kRestartCountdownSeconds)
-			restart = true;
-
-		if (restart)
-		{
-			restart_failed = !sdauth::RestartLoader();
-			if (!restart_failed)
-				PostQuitMessage(0);
-			else
-				shared.restart_ready_time = now;
-		}
-		else if (!restart_failed)
-		{
-			int remaining = static_cast<int>(kRestartCountdownSeconds - elapsed);
-			if (remaining < 1)
-				remaining = 1;
-			char countdown[48];
-			std::snprintf(countdown, sizeof(countdown), "Restarting in %d...", remaining);
-			text(font.caption, 11.0f, ImVec2(button.min.x, button.max.y + 10.0f), kMuted, countdown);
-		}
-		return;
-	}
-
-	shared.restart_ready_time = -1.0;
-	restart_failed = false;
-
-	if (downloading)
-	{
-		ImGui::BeginDisabled();
-		secondary_button("Downloading...", size);
-		ImGui::EndDisabled();
-	}
-	else if (failed)
-	{
-		if (ImGui::Button("Retry update", size))
-			sdauth::StartUpdate();
-	}
-	else if (available)
-	{
-		if (ImGui::Button("Update now", size))
-			sdauth::StartUpdate();
-	}
-	else
-	{
-		ImGui::BeginDisabled();
-		secondary_button("Up to date", size);
-		ImGui::EndDisabled();
-	}
-
-	if (ImGui::IsItemHovered() && !downloading && (available || failed))
-		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 }
 
 // ------------------------------------------------------------ file list ----
@@ -304,10 +162,9 @@ void draw_component_files(const Rect& card)
 
 void DrawDownloads()
 {
-	draw_page_header("Downloads", "Loader updates and component files.");
+	draw_page_header("Downloads", "Component files on this PC.");
 
-	draw_update_card(rect(kContentLeft, kContentTop, kContentRight, 332.0f));
-	draw_component_files(rect(kContentLeft, 348.0f, kContentRight, kContentBottom));
+	draw_component_files(rect(kContentLeft, kContentTop, kContentRight, kContentBottom));
 }
 
 } // namespace dash

@@ -41,23 +41,9 @@ void draw_hero()
 	std::snprintf(build, sizeof(build), "BUILD %s", app::kVersion);
 	pill(rect(hero.min.x + 32.0f, hero.min.y + 104.0f, hero.min.x + 112.0f, hero.min.y + 126.0f), build, kGreen);
 
-	const bool available = update_available();
-	pill(rect(hero.min.x + 124.0f, hero.min.y + 104.0f, hero.min.x + 124.0f + (available ? 118.0f : 126.0f),
-		hero.min.y + 126.0f), available ? "UPDATE READY" : "UP TO DATE", available ? kBlue : accent_color());
-
-	// The primary action follows the situation: update first, apps otherwise.
 	ImGui::SetCursorScreenPos(ImVec2(hero.max.x - 164.0f, hero.min.y + 96.0f));
-	if (available)
-	{
-		if (ImGui::Button("Update now", ImVec2(132.0f, 32.0f)))
-			state.page = PageDownloads;
-		if (ImGui::IsItemHovered())
-			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-	}
-	else if (secondary_button("Open applications", ImVec2(132.0f, 32.0f)))
-	{
+	if (secondary_button("Open applications", ImVec2(132.0f, 32.0f)))
 		state.page = PageApplications;
-	}
 }
 
 void draw_stats()
@@ -99,7 +85,7 @@ void draw_stats()
 
 	stat_card(rect(x, y1, x + w, y2), "COMPONENTS", count, "Released for you", accent_color());
 	x += w + gap;
-	stat_card(rect(x, y1, x + w, y2), "BUILD", build, update_text(), update_color());
+	stat_card(rect(x, y1, x + w, y2), "BUILD", build, "Installed", kGreen);
 	x += w + gap;
 	stat_card(rect(x, y1, x + w, y2), "ACCESS", access_value, access_hint, access_color);
 	x += w + gap;
@@ -181,7 +167,6 @@ void draw_loader_status()
 		state.page = PageAbout;
 	divider(card.min.x + 24.0f, card.max.x - 24.0f, card.min.y + 56.0f);
 
-	const std::string latest = sdauth::StartupLatestVersion();
 	const std::string components = std::to_string(sdauth::Components().size());
 
 	const Rect inner = rect(card.min.x - 4.0f, card.min.y, card.max.x, card.max.y);
@@ -189,10 +174,6 @@ void draw_loader_status()
 	info_row(inner, y, "SERVER", "Connected", kGreen);
 	y += 34.0f;
 	info_row(inner, y, "VERSION", app::kVersion, kText);
-	y += 34.0f;
-	info_row(inner, y, "LATEST", latest.empty() ? app::kVersion : latest.c_str(), kText);
-	y += 34.0f;
-	info_row(inner, y, "UPDATE", update_text(), update_color());
 	y += 34.0f;
 	info_row(inner, y, "COMPONENTS", components.c_str(), kText);
 }

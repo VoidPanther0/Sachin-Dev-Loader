@@ -62,7 +62,6 @@ struct Shared
 	int selected = 0;
 	double copied_time = -10.0;
 	double diagnostics_time = -10.0;
-	double restart_ready_time = -1.0;
 };
 
 extern Shared shared;
@@ -100,11 +99,6 @@ bool contains_ci(const std::string& haystack, const char* needle);
 ImVec4 status_color(const std::string& status);
 std::string status_label(const std::string& status);
 bool component_launchable(const sdauth::Component& component);
-
-// Update state of the loader itself. latest_version comes from loader_config.
-const char* update_text();
-ImVec4 update_color();
-bool update_available();
 
 // Days left until the account expires, or -1 for no expiry.
 int access_days_left();
