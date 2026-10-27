@@ -16,11 +16,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //   check     { access_token, hwid }                      -> ok
 //   logout    { access_token }                            -> ok
 //
-// Releases: public.loader_config holds only latest_version and min_version. To
-// ship an update, change latest_version. This function finds the GitHub release
-// tagged v<latest_version> and sends its download URL and SHA-256 to the client,
-// which shows the update inside the loader. Nothing is written back to the
-// database.
+// Releases: public.loader_config holds one version. To ship an update, publish
+// the GitHub release tagged v<version>, then change that version. This function
+// finds the release and sends its download URL and SHA-256 to the client, which
+// updates itself on the loading screen. Nothing is written back to the
+// database. The answer carries "version" and, for 1.0.x clients, the same value
+// as "latest_version".
 //
 // Deploy with verify_jwt = false: login and refresh carry no user JWT, and the
 // function authorises every request itself.
@@ -359,7 +360,7 @@ async function BuildCall(
 	}
 
 	const data = response.data;
-	const latestVersion = Text(data.latest_version);
+	const latestVersion = Text(data.version);
 
 	if (data.ok !== true) {
 		const code = Text(data.error);
@@ -378,6 +379,7 @@ async function BuildCall(
 			error: unpublished
 				? `Version ${latestVersion} is being published. Try again in a few minutes`
 				: error,
+			version: latestVersion,
 			latest_version: latestVersion,
 			update_url: release?.updateUrl ?? "",
 			release_url: release?.releaseUrl ?? "",
@@ -391,6 +393,7 @@ async function BuildCall(
 		username: Text(data.username),
 		expires_at: typeof data.expires_at === "number" ? data.expires_at : 0,
 		components: Array.isArray(data.components) ? data.components : [],
+		version: latestVersion,
 		latest_version: latestVersion,
 		update_url: release?.updateUrl ?? "",
 		release_url: release?.releaseUrl ?? "",
@@ -456,7 +459,7 @@ async function FetchRelease(version: string): Promise<ReleaseInfo | null> {
 	}
 }
 
-// Release of the version set in loader_config.latest_version. Cached for five
+// Release of the version set in loader_config.version. Cached for five
 // minutes so GitHub is not called on every client start.
 async function FindRelease(version: string): Promise<ReleaseInfo | null> {
 	if (!/^\d{1,4}(\.\d{1,4}){0,3}$/.test(version)) return null;

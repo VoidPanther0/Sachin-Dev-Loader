@@ -360,22 +360,6 @@ bool Finished(const LoadingAnim& anim)
 	return anim.done_time >= 0.0 && ImGui::GetTime() - anim.done_time >= kDoneHoldSeconds;
 }
 
-void DrawBar(const Rect& track, float fraction)
-{
-	box(track, kLoginField, 4.0f);
-	const float fill = clampf(fraction, 0.0f, 1.0f);
-	if (fill > 0.01f)
-	{
-		const Rect bar = rect(track.min.x, track.min.y, track.min.x + width(track) * fill, track.max.y);
-		gradient_box(bar, kLoginBlue, kLoginPurple, 4.0f);
-	}
-
-	char percent[16];
-	std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(fill * 100.0f + 0.5f));
-	const float pw = text_width(font.body, 15.0f, percent);
-	text(font.body, 15.0f, ImVec2(track.max.x - pw, track.max.y + 8.0f), kLoginHint, percent);
-}
-
 void DrawLoading(const char* const* steps, int count, const LoadingAnim& anim, int failed_step,
 	const std::string& caption, bool caption_is_error)
 {

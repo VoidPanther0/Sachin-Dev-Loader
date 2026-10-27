@@ -7,11 +7,11 @@
 // Loading screens shown in the login window.
 //
 //   Startup  runs when the exe starts: connect, build check, update check. When
-//            the server has a newer build (latest_version above this one) or
-//            rejects this one as outdated or modified, this screen shows the
-//            update, downloads it, replaces the exe and restarts by itself.
-//            Maintenance and network errors stop here too, with the server's
-//            message and a Retry button.
+//            the server version differs from this build, a fourth step
+//            "Downloading update..." joins the same list: the bar follows the
+//            download, the exe is replaced and the loader restarts after a
+//            3, 2, 1 countdown. Maintenance and network errors stop here too,
+//            with the server's message and a Retry button.
 //   Signing  runs after the Login button: password check, device binding and
 //            the security checks. Every step is decided by the server.
 //
@@ -26,10 +26,9 @@ using namespace login_ui;
 
 // Slow enough to read every step; the server answer is never the limit.
 constexpr double kStartupStepSeconds = 0.75;
-// The update notice stays up before the download starts, and the finished
-// notice stays up before the restart.
-constexpr double kUpdateNoticeSeconds = 3.0;
-constexpr double kRestartCountdownSeconds = 4.0;
+// The update step stays visible before the download starts.
+constexpr double kUpdateNoticeSeconds = 2.0;
+constexpr double kRestartCountdownSeconds = 3.0;
 constexpr double kUpdateRetrySeconds = 3.0;
 // An optional update that keeps failing must not lock the login form.
 constexpr int kOptionalUpdateAttempts = 3;
@@ -39,6 +38,15 @@ const char* const kStartupSteps[] = {
 	"Checking loader integrity...",
 	"Checking for update...",
 };
+
+// The same list with the update step, used once the server has a newer build.
+const char* const kUpdateSteps[] = {
+	"Connecting to server...",
+	"Checking loader integrity...",
+	"Checking for update...",
+	"Downloading update...",
+};
+constexpr int kStartupStepCount = 3;
 
 const char* const kLoginSteps[] = {
 	"Authenticating...",
@@ -74,57 +82,25 @@ Rect action_button()
 	return rect(fx, 472.0f, app::kLoginWidth - fx, 530.0f);
 }
 
-// Update notice, download progress and the automatic restart. A failed download
-// is retried; a required update retries until it works because the form cannot
-// open before this build is replaced, an optional one is dropped after a few
-// failures.
-void draw_update_panel()
+void quit_after_restart()
 {
-	const float w = app::kLoginWidth;
-	const float fx = 60.0f;
-	const float fw = w - fx * 2.0f;
-	const std::string version = sdauth::StartupLatestVersion();
-	const int status = sdauth::UpdateStatus();
-	const bool installed = status == sdauth::UpdateReady;
-	const bool failed = status == sdauth::UpdateFailed;
-	const double now = ImGui::GetTime();
+	loading.restart_failed = !sdauth::RestartLoader();
+	if (!loading.restart_failed)
+		PostQuitMessage(0);
+}
 
-	pill(rect(fx, 250.0f, fx + 148.0f, 272.0f),
-		installed ? "UPDATE READY" : failed ? "RETRYING UPDATE" : "UPDATE FOUND",
-		installed ? kGreen : kLoginSubtitle);
-
-	text(font.title, 26.0f, ImVec2(fx, 292.0f), kText,
-		installed ? "Restarting loader" : "Updating loader");
-
-	if (!version.empty())
-	{
-		char line[80];
-		std::snprintf(line, sizeof(line), "New version: v%s", version.c_str());
-		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, line);
-	}
-	else
-	{
-		text(font.body, 16.0f, ImVec2(fx, 338.0f), kLoginHint, "A newer loader build is required.");
-	}
-	text(font.body, 16.0f, ImVec2(fx, 362.0f), kLoginHint,
-		installed ? "The latest build is installed." : "It installs automatically, then the loader restarts.");
-
-	DrawBar(rect(fx, 410.0f, fx + fw, 418.0f), static_cast<float>(sdauth::UpdateProgress()) / 100.0f);
-
-	std::string caption = sdauth::UpdateMessage();
-	if (loading.restart_failed)
-		caption = "The restart did not start. Use the button below.";
-	else if (failed)
-		caption = "Download did not finish. Retrying automatically...";
-	else if (status == sdauth::UpdateIdle)
-		caption = "Update found. Starting the download...";
-	else if (caption.empty())
-		caption = "Downloading update...";
-	text(font.body, 15.0f, ImVec2(fx, 426.0f), kLoginHint, caption.c_str());
-
+// Drives the update step of the startup list: hold, download, retry, then the
+// automatic restart. Returns the caption for the line under the bar. A required
+// update retries until it works because the form cannot open before this build
+// is replaced; an optional one is dropped by the caller after a few failures.
+std::string drive_update(bool& caption_is_error)
+{
 	const Rect button = action_button();
+	const int status = sdauth::UpdateStatus();
+	const double now = ImGui::GetTime();
+	caption_is_error = false;
 
-	if (installed)
+	if (status == sdauth::UpdateReady)
 	{
 		loading.update_retry_time = -1.0;
 		if (loading.update_ready_time < 0.0)
@@ -135,38 +111,34 @@ void draw_update_panel()
 
 		if (loading.restart_failed)
 		{
+			caption_is_error = true;
 			if (GradientButton("##update_restart", button, "Retry restart"))
-			{
-				loading.restart_failed = !sdauth::RestartLoader();
-				if (!loading.restart_failed)
-					PostQuitMessage(0);
-			}
-			return;
+				quit_after_restart();
+			return "The restart did not start. Use the button below.";
 		}
 
 		const double elapsed = now - loading.update_ready_time;
 		if (elapsed >= kRestartCountdownSeconds)
 		{
-			loading.restart_failed = !sdauth::RestartLoader();
-			if (!loading.restart_failed)
-				PostQuitMessage(0);
+			quit_after_restart();
 			loading.update_ready_time = -1.0;
-			return;
+			return "Update installed. Restarting...";
 		}
 
-		int remaining = static_cast<int>(kRestartCountdownSeconds - elapsed);
+		int remaining = static_cast<int>(kRestartCountdownSeconds - elapsed + 0.999);
 		if (remaining < 1)
 			remaining = 1;
 		char label[64];
 		std::snprintf(label, sizeof(label), "Restarting in %d...", remaining);
 		BusyButton(button, label);
-		return;
+		return "Update installed. Restarting...";
 	}
 
 	loading.update_ready_time = -1.0;
 
-	if (failed)
+	if (status == sdauth::UpdateFailed)
 	{
+		caption_is_error = true;
 		if (loading.update_retry_time < 0.0)
 			loading.update_retry_time = now + kUpdateRetrySeconds;
 
@@ -176,8 +148,8 @@ void draw_update_panel()
 			loading.update_retry_time = -1.0;
 			++loading.update_failures;
 			sdauth::StartUpdate();
-			BusyButton(button, "Retrying update...");
-			return;
+			BusyButton(button, "Retrying...");
+			return "Download did not finish. Retrying...";
 		}
 
 		int remaining = static_cast<int>(wait + 0.999);
@@ -186,33 +158,25 @@ void draw_update_panel()
 		char label[64];
 		std::snprintf(label, sizeof(label), "Retrying in %d...", remaining);
 		BusyButton(button, label);
-		return;
+		return "Download did not finish. Retrying...";
 	}
 
-	// Idle: hold the notice so it can be read, then start the download.
 	if (status == sdauth::UpdateIdle)
 	{
 		if (loading.update_notice_time < 0.0)
 			loading.update_notice_time = now;
 
-		const double wait = kUpdateNoticeSeconds - (now - loading.update_notice_time);
-		if (wait <= 0.0)
-		{
+		if (now - loading.update_notice_time >= kUpdateNoticeSeconds)
 			sdauth::StartUpdate();
-			BusyButton(button, "Starting...");
-			return;
-		}
 
-		int remaining = static_cast<int>(wait + 0.999);
-		if (remaining < 1)
-			remaining = 1;
-		char label[64];
-		std::snprintf(label, sizeof(label), "Updating in %d...", remaining);
-		BusyButton(button, label);
-		return;
+		const std::string version = sdauth::StartupVersion();
+		BusyButton(button, "Loading...");
+		return version.empty() ? std::string("Update found.") : "Update v" + version + " found.";
 	}
 
-	BusyButton(button, "Updating...");
+	BusyButton(button, "Downloading...");
+	const std::string message = sdauth::UpdateMessage();
+	return message.empty() ? std::string("Downloading update...") : message;
 }
 
 } // namespace
@@ -226,33 +190,57 @@ void BeginStartup()
 
 Result Startup()
 {
-	const int count = static_cast<int>(sizeof(kStartupSteps) / sizeof(kStartupSteps[0]));
 	const int status = sdauth::StartupStatus();
 	const int stage = sdauth::StartupStageValue();
 	const bool failed = status == sdauth::StatusError;
 	const bool ready = status == sdauth::StatusOk;
 
-	// StartupConnecting (1) is step 0; StartupDone means every step is done.
-	const int real_active = ready ? count : stage - 1;
-	if (!failed)
+	// The server has a different build, or rejects this one as outdated or
+	// modified. A failed check only counts when the update is required.
+	const bool update = (ready || (failed && sdauth::StartupUpdateRequired())) &&
+		sdauth::StartupUpdateAvailable() && !sdauth::StartupDownloadUrl().empty();
+
+	// An optional update that keeps failing is dropped so login stays open.
+	if (update && !sdauth::StartupUpdateRequired() && loading.update_failures >= kOptionalUpdateAttempts &&
+		sdauth::UpdateStatus() == sdauth::UpdateFailed)
+	{
+		sdauth::SkipUpdate();
+		return Result::Running;
+	}
+
+	const int count = update ? kStartupStepCount + 1 : kStartupStepCount;
+	const char* const* steps = update ? kUpdateSteps : kStartupSteps;
+	const bool installed = update && sdauth::UpdateStatus() == sdauth::UpdateReady;
+
+	// StartupConnecting (1) is step 0; with an update the last step is the
+	// download and every step is done once the new exe is installed.
+	int real_active = ready ? kStartupStepCount : stage - 1;
+	if (update)
+		real_active = installed ? count : kStartupStepCount;
+	if (!failed || update)
 		Advance(loading.startup, real_active, count, kStartupStepSeconds);
 
-	// A newer build, or one the server rejects as outdated or modified, updates
-	// here once every step has been shown, so the steps stay readable.
-	const bool answered = (ready && Finished(loading.startup)) || (failed && sdauth::StartupUpdateRequired());
-	if (answered && sdauth::StartupUpdateAvailable() && !sdauth::StartupDownloadUrl().empty())
+	// The bar follows the download once the update step is active.
+	LoadingAnim view = loading.startup;
+	if (update && loading.startup.shown >= kStartupStepCount && !installed)
 	{
-		// An optional update that keeps failing is dropped so login stays open.
-		if (!sdauth::StartupUpdateRequired() && loading.update_failures >= kOptionalUpdateAttempts &&
-			sdauth::UpdateStatus() == sdauth::UpdateFailed)
-		{
-			sdauth::SkipUpdate();
-		}
+		const float download = static_cast<float>(sdauth::UpdateProgress()) / 100.0f;
+		const float fraction = (static_cast<float>(kStartupStepCount) + download) / static_cast<float>(count);
+		if (fraction > view.progress)
+			view.progress = fraction;
+	}
+
+	if (update)
+	{
+		bool caption_is_error = false;
+		std::string caption = "Preparing loader...";
+		if (loading.startup.shown >= kStartupStepCount)
+			caption = drive_update(caption_is_error);
 		else
-		{
-			draw_update_panel();
-			return Result::Running;
-		}
+			BusyButton(action_button(), "Loading...");
+
+		DrawLoading(steps, count, view, -1, caption, caption_is_error);
+		return Result::Running;
 	}
 
 	const int failed_step = failed ? (loading.startup.shown < count ? loading.startup.shown : count - 1) : -1;
@@ -260,7 +248,7 @@ Result Startup()
 	if (caption.empty())
 		caption = failed ? "Startup check failed. Retry." : "Preparing loader...";
 
-	DrawLoading(kStartupSteps, count, loading.startup, failed_step, caption, failed);
+	DrawLoading(steps, count, loading.startup, failed_step, caption, failed);
 
 	if (failed)
 	{

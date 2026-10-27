@@ -70,9 +70,6 @@ bool Finished(const LoadingAnim& anim);
 void DrawLoading(const char* const* steps, int count, const LoadingAnim& anim, int failed_step,
 	const std::string& caption, bool caption_is_error);
 
-// Thin progress bar with a percent label, used by the update panel.
-void DrawBar(const ui::Rect& track, float fraction);
-
 // ---------------------------------------------------------------- buttons ----
 
 bool GradientButton(const char* id, const ui::Rect& r, const char* value);

@@ -57,9 +57,11 @@ The loader shows two loading screens. Every step is decided by the server.
 1. **Startup** (when the exe opens): *Connecting to server*, *Checking loader
    integrity*, *Checking for update*. The client sends its version and the
    SHA-256 of its own exe to `loader-auth` (`action: "startup"`), which calls
-   `public.loader_startup()`. Maintenance mode, a version below `min_version` or
-   an unknown exe hash stops the loader with the server's message and a Retry
-   button. A build below `min_version` updates itself on this screen.
+   `public.loader_startup()`. Maintenance mode or an unknown exe hash stops the
+   loader with the server's message and a Retry button. A build below the
+   server `version` gets a fourth step, *Downloading update*, on this same
+   screen: the bar follows the download, then the loader restarts by itself
+   after a 3, 2, 1 countdown. This is the only place the loader updates.
 2. **Login** (after the Login button): *Authenticating*, *Verifying account
    and device*, *Running security checks*. After the password check,
    `action: "bootstrap"` calls `public.loader_bootstrap()` with the user token.
@@ -84,7 +86,7 @@ Three tables, nothing else.
 | Table               | Purpose                                                       |
 | ------------------- | ------------------------------------------------------------- |
 | `profiles`          | One row per account: ban, hardware ID, expiry, login count    |
-| `loader_config`     | One row: `maintenance`, `maintenance_message`, `min_version`, `latest_version` |
+| `loader_config`     | One row: `maintenance`, `maintenance_message`, `version` |
 | `loader_components` | Apps, games and tools released to the client                  |
 
 Run the `admin_*` helpers as the `postgres` role; they are not reachable from
@@ -125,26 +127,17 @@ To ship a new version:
    `src/Resources/version.rc`.
 2. Push a matching tag, for example `v1.0.1`. The workflow builds the exe and
    publishes it as a GitHub Release with `SHA256SUMS.txt`.
-3. Change the version in the database:
+3. When the release is published, change the version in the database:
 
 ```sql
-update public.loader_config set latest_version = '1.0.1' where id = 1;
+update public.loader_config set version = '1.0.1' where id = 1;
 ```
 
 `loader-auth` finds the GitHub release tagged `v1.0.1` and sends its download
-URL and SHA-256 to the client. Loaders on an older version show an update chip
-in the page header and an **Update now** button on the Downloads page. The
-update downloads, is verified with SHA-256, replaces the running exe (the old
-one becomes `<exe>.old`) and restarts the loader.
-
-To force everyone onto the new build, raise `min_version` as well:
-
-```sql
-update public.loader_config set latest_version = '1.0.1', min_version = '1.0.1' where id = 1;
-```
-
-Builds below `min_version` cannot reach the login form; they update on the
-startup screen.
+URL and SHA-256 to the client. Every loader below that version updates on the
+startup loading screen: it downloads, verifies the SHA-256, replaces the
+running exe (the old one becomes `<exe>.old`) and restarts. Do not change the
+database version before the release exists.
 
 ## Requirements
 
@@ -246,10 +239,10 @@ git push origin v1.0.1
 ```
 
 The workflow builds `Release|x64` and uploads a two-file artifact:
-`ImGuiTemplate.exe` and `SHA256SUMS.txt`. The GitHub Release contains only
-`ImGuiTemplate.exe` so the direct download URL can update old clients.
+`ImGuiTemplate.exe` and `SHA256SUMS.txt`. The GitHub Release contains both;
+`loader-auth` reads the hash from `SHA256SUMS.txt`.
 
-The startup check returns `latest_version`, `update_url` and `sha256` on both
+The startup check returns `version`, `update_url` and `sha256` on both
 success and rejection. The loader downloads the executable, verifies the hash
 and swaps it in place of the running exe (the old one becomes `<exe>.old`).
 No browser or release page is opened.

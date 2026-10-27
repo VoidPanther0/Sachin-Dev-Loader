@@ -65,7 +65,7 @@ std::string g_startup_message;
 std::string g_update_url;
 std::string g_release_url;
 std::string g_update_sha;
-std::string g_latest_version;
+std::string g_server_version;
 std::atomic<bool> g_update_available(false);
 std::atomic<bool> g_update_required(false);
 std::atomic<bool> g_update_busy(false);
@@ -154,20 +154,20 @@ void SetComponents(const std::vector<sdauth::Component>& components) {
 }
 
 void SetUpdateInfo(const std::string& update_url, const std::string& release_url, const std::string& sha256,
-	const std::string& latest_version, bool required) {
+	const std::string& server_version, bool required) {
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
 		g_update_url = update_url;
 		g_release_url = release_url;
 		g_update_sha = sha256;
-		g_latest_version = latest_version;
+		g_server_version = server_version;
 		g_update_message.clear();
 	}
 	g_update_progress.store(0);
 	g_update_status.store(static_cast<int>(sdauth::UpdateIdle));
 	const bool usable = !update_url.empty() && IsSha256Hex(sha256);
 	g_update_required.store(usable && required);
-	g_update_available.store(usable && (required || VersionNewer(latest_version, app::kVersion)));
+	g_update_available.store(usable && (required || VersionNewer(server_version, app::kVersion)));
 }
 
 void SetUpdate(int status, int progress, const std::string& message) {
@@ -904,7 +904,7 @@ bool ParseFunctionResult(const std::string& body, std::string& error) {
 }
 
 bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& components, std::string& error,
-	std::string& update_url, std::string& release_url, std::string& sha256, std::string& latest_version,
+	std::string& update_url, std::string& release_url, std::string& sha256, std::string& server_version,
 	bool& update_required) {
 	update_required = false;
 	jsonlite::Value root;
@@ -913,7 +913,9 @@ bool ParseComponents(const std::string& body, std::vector<sdauth::Component>& co
 		return false;
 	}
 
-	latest_version = root.get_string("latest_version");
+	server_version = root.get_string("version");
+	if (server_version.empty())
+		server_version = root.get_string("latest_version");
 
 	if (!root.get_bool("ok", false)) {
 		std::string code = root.get_string("code");
@@ -1005,17 +1007,17 @@ bool RunBootstrap(const std::string& access_token, const std::string& hwid, std:
 	std::string update_url;
 	std::string release_url;
 	std::string sha256;
-	std::string latest_version;
+	std::string server_version;
 	bool update_required = false;
 	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256,
-			latest_version, update_required)) {
+			server_version, update_required)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
+		SetUpdateInfo(update_url, release_url, sha256, server_version, update_required);
 		return false;
 	}
 
-	SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
+	SetUpdateInfo(update_url, release_url, sha256, server_version, update_required);
 	SetComponents(components);
 	ParseExtras(response.body, true);
 	return true;
@@ -1060,20 +1062,20 @@ void RunStartup(std::string hwid) {
 	std::string update_url;
 	std::string release_url;
 	std::string sha256;
-	std::string latest_version;
+	std::string server_version;
 	bool update_required = false;
 	g_startup_stage.store(sdauth::StartupUpdateCheck);
 	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256,
-			latest_version, update_required)) {
+			server_version, update_required)) {
 		if (error.empty() || response.status != 200)
 			error = ErrorMessage(response, "Loader check failed. Try again");
-		SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
+		SetUpdateInfo(update_url, release_url, sha256, server_version, update_required);
 		SetStartup(sdauth::StatusError, error);
 		return;
 	}
 
 	g_startup_stage.store(sdauth::StartupComponents);
-	SetUpdateInfo(update_url, release_url, sha256, latest_version, update_required);
+	SetUpdateInfo(update_url, release_url, sha256, server_version, update_required);
 	SetComponents(components);
 	ParseExtras(response.body, false);
 
@@ -1322,9 +1324,9 @@ std::string StartupSha256() {
 	return g_update_sha;
 }
 
-std::string StartupLatestVersion() {
+std::string StartupVersion() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_latest_version;
+	return g_server_version;
 }
 
 bool StartupUpdateAvailable() {

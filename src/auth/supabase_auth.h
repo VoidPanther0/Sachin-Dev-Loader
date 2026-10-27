@@ -36,7 +36,7 @@ enum StartupStage {
 };
 
 // Automatic update state when the server rejects this build or reports a newer
-// latest_version on a successful check.
+// version on a successful check.
 enum UpdateState {
 	UpdateIdle = 0,
 	UpdateDownloading = 1,
@@ -88,11 +88,11 @@ std::string StartupDownloadUrl();
 std::string StartupReleaseUrl();
 std::string StartupSha256();
 
-// Newest version published on the server. Empty for servers that do not send
-// one. Unlike a rejected build, this allows an update before the login form.
-std::string StartupLatestVersion();
+// The one version the server runs (loader_config.version). Empty when the
+// server sends none.
+std::string StartupVersion();
 
-// True when latest_version is newer than this executable and the server sent a
+// True when the server version is newer than this executable and the server sent a
 // download URL with a SHA-256. The startup screen then updates without a click.
 bool StartupUpdateAvailable();
 

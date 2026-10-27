@@ -4,11 +4,12 @@
 --   loader_config      one row: maintenance switch and release versions
 --   loader_components  content released to the client
 --
--- Ship a release by editing latest_version in loader_config:
---   update public.loader_config set latest_version = '1.0.1' where id = 1;
+-- Ship a release by publishing the GitHub release, then editing version in
+-- loader_config:
+--   update public.loader_config set version = '1.0.1' where id = 1;
 -- The Edge Function finds the matching GitHub release (tag v1.0.1) and sends
--- its download URL and SHA-256 to the client. Raise min_version to force
--- everyone onto the new build.
+-- its download URL and SHA-256 to the client. A build below this version
+-- updates itself on the loading screen.
 --
 -- Safe to re-run. Account rows, passwords and hardware bindings are kept.
 
@@ -48,10 +49,21 @@ create table if not exists public.loader_config (
   id smallint primary key default 1,
   maintenance boolean not null default false,
   maintenance_message text not null default '',
-  min_version text not null default '1.0.0',
-  latest_version text not null default '1.0.0',
+  version text not null default '1.0.0',
   constraint loader_config_single_row check (id = 1)
 );
+
+alter table public.loader_config add column if not exists version text not null default '1.0.0';
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'loader_config' and column_name = 'latest_version') then
+    update public.loader_config set version = latest_version where id = 1;
+  end if;
+end;
+$$;
+alter table public.loader_config drop column if exists min_version;
+alter table public.loader_config drop column if exists latest_version;
 
 alter table public.loader_config drop column if exists update_url;
 alter table public.loader_config drop column if exists update_sha256;
@@ -117,13 +129,9 @@ drop table if exists public.loader_check_log cascade;
 
 -- ------------------------------------------------------------- seed data ----
 
-insert into public.loader_config (id, maintenance, maintenance_message, min_version, latest_version)
-values (1, false, '', '1.0.0', '1.0.0')
-on conflict (id) do update set
-  maintenance = false,
-  maintenance_message = '',
-  min_version = '1.0.0',
-  latest_version = '1.0.0';
+insert into public.loader_config (id, maintenance, maintenance_message, version)
+values (1, false, '', '1.0.0')
+on conflict (id) do nothing;
 
 insert into public.loader_components (name, version, description, status, requires_login, sort_order)
 values ('Core', '1.0.0', 'Loader core and session tools', 'online', true, 10)
@@ -208,10 +216,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select jsonb_build_object(
-    'latest_version', c.latest_version,
-    'min_version', c.min_version
-  )
+  select jsonb_build_object('version', c.version)
   from public.loader_config c
   where c.id = 1;
 $$;
@@ -272,10 +277,10 @@ begin
       'message', 'Loader version is not valid');
   end if;
 
-  v_cmp := public.loader_version_cmp(p_version, v_config.min_version);
+  v_cmp := public.loader_version_cmp(p_version, v_config.version);
   if v_cmp is null or v_cmp < 0 then
     return jsonb_build_object('ok', false, 'error', 'outdated',
-      'message', 'This loader version is outdated. Download v' || v_config.latest_version);
+      'message', 'This loader version is outdated. Download v' || v_config.version);
   end if;
 
   if p_exe_hash is null or p_exe_hash !~ '^[0-9a-f]{64}$' then
