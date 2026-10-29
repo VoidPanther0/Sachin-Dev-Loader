@@ -25,14 +25,11 @@ struct NavEntry
 };
 
 const NavEntry kNav[] = {
-	{ "Home",         "Your loader at a glance.",                          PageHome,         icon_home },
-	{ "Applications", "Apps, games and tools released for this account.",  PageApplications, icon_apps },
-	{ "Downloads",    "Component files and download activity.",            PageDownloads,    icon_download },
-	{ "DLL Tools",    "Component files and a read-only PE check.",         PageDllTools,     icon_dll },
-	{ "Theme",        "Make the loader yours. Changes apply live.",        PageTheme,        icon_theme },
-	{ "Account",      "Your profile, access and device.",                  PageAccount,      icon_account },
-	{ "Settings",     "Interface, performance and launch options.",        PageSettings,     icon_settings },
-	{ "About",        "Version, backend status and credits.",              PageAbout,        icon_about },
+	{ "Home",          "Your loader at a glance.",                          PageHome,         icon_home },
+	{ "Product",       "Product details and features.",                     PageProduct,      icon_product },
+	{ "Game Updates",  "Game updates and patches.",                         PageGameUpdates,  icon_updates },
+	{ "Socials",       "Connect with us on social media.",                  PageSocials,      icon_socials },
+	{ "Settings",      "Interface, performance and launch options.",        PageSettings,     icon_settings },
 };
 
 constexpr int kNavCount = static_cast<int>(sizeof(kNav) / sizeof(kNav[0]));
@@ -180,60 +177,8 @@ void draw_sidebar()
 		else
 			anim += (wanted - anim) * clampf(ImGui::GetIO().DeltaTime * 14.0f, 0.0f, 1.0f);
 
-		if (entry.page == PageApplications)
-		{
-			const int count = static_cast<int>(sdauth::Components().size());
-			if (count > 0)
-			{
-				char badge[16];
-				std::snprintf(badge, sizeof(badge), "%d", count);
-				nav_badge(y, badge);
-			}
-		}
 		y += kNavStep;
 	}
-
-	// ------------------------------------------------------- account block ---
-	const Rect account = rect(16.0f, 548.0f, kSidebarWidth - 16.0f, 616.0f);
-	box(account, kCard, 12.0f, card_border());
-
-	const sdauth::Session session = sdauth::GetSession();
-	const char initial = session.username.empty() ? '?' : static_cast<char>(
-		std::toupper(static_cast<unsigned char>(session.username[0])));
-
-	const ImVec2 avatar_center(44.0f, 582.0f);
-	draw->AddCircleFilled(avatar_center, 17.0f, color_u32(fade(accent_color(), 0.18f)), 32);
-	draw->AddCircle(avatar_center, 17.0f, color_u32(fade(accent_color(), 0.45f)), 32, 1.2f);
-	char letter[2] = { initial, '\0' };
-	const float letter_w = text_width(font.semibold, 15.0f, letter);
-	text(font.semibold, 15.0f, ImVec2(avatar_center.x - letter_w * 0.5f, avatar_center.y - 8.0f),
-		lift(accent_color(), 0.2f), letter);
-
-	const char* name = session.username.empty() ? "Guest" : session.username.c_str();
-	draw->PushClipRect(ImVec2(70.0f, 556.0f), ImVec2(kSidebarWidth - 26.0f, 580.0f), true);
-	text(font.semibold, 13.0f, ImVec2(70.0f, 562.0f), kText, name);
-	draw->PopClipRect();
-
-	const bool live = sdauth::HasSession();
-	draw->AddCircleFilled(ImVec2(74.0f, 590.0f), 3.0f, color_u32(live ? kGreen : kRed), 8);
-	text(font.caption, 10.0f, ImVec2(84.0f, 585.0f), live ? kGreen : kRed, live ? "Online" : "Offline");
-
-	// ----------------------------------------------------------- sign out ---
-	const Rect sign_out = rect(16.0f, 628.0f, kSidebarWidth - 16.0f, 668.0f);
-	ImGui::SetCursorScreenPos(sign_out.min);
-	if (ImGui::InvisibleButton("##sign_out_sidebar", ImVec2(width(sign_out), height(sign_out))))
-		screen_login::SignOut();
-	const bool sign_out_hovered = ImGui::IsItemHovered();
-	if (sign_out_hovered)
-	{
-		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-		box(sign_out, kCardSoft, 9.0f);
-	}
-
-	icon_logout(ImVec2(sign_out.min.x + 20.0f, sign_out.min.y + 20.0f),
-		color_u32(sign_out_hovered ? kText : kNavText));
-	text(font.body, 13.0f, ImVec2(sign_out.min.x + 40.0f, sign_out.min.y + 11.0f),
-		sign_out_hovered ? kText : kNavText, "Sign out");
 }
 
 void draw_footer()
