@@ -89,8 +89,6 @@ jobs:
         with:
           name: Sachin Dev Loader ${{ github.ref_name }}
           body: |
-            <img src="https://raw.githubusercontent.com/sapkotasachin064-beep/Sachin-Dev-Loader/main/src/Resources/Slogo.png" width="96" alt="Sachin Dev Loader">
-
             Windows x64 executable. Download `SachinDevLoader.exe` and run it.
             Older builds update automatically; verify the file against the build artifact `SHA256SUMS.txt`.
           files: |
