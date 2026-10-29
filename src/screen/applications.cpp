@@ -310,7 +310,7 @@ void draw_grid(const Rect& list, const std::vector<Entry>& entries)
 			const LocalApp& app = apps[static_cast<std::size_t>(entry.index)];
 			active = shared.selected_local == entry.index;
 			const bool running = local_app_running(entry.index);
-			draw_tile(tile, app.name, "LOCAL PROGRAM",
+			draw_tile(tile, app.name.c_str(), "LOCAL PROGRAM",
 				running ? "Running now" : "Ready to start",
 				running ? kGreen : kNavText, active, hovered);
 			if (clicked)
@@ -325,7 +325,7 @@ void draw_grid(const Rect& list, const std::vector<Entry>& entries)
 			active = shared.selected == entry.index && shared.selected_local < 0;
 			char version[48];
 			std::snprintf(version, sizeof(version), "v%s", component.version.c_str());
-			draw_tile(tile, component.name, version,
+			draw_tile(tile, component.name.c_str(), version,
 				component.description.empty() ? "From the server" : component.description.c_str(),
 				status_color(component.status), active, hovered);
 			if (clicked)
