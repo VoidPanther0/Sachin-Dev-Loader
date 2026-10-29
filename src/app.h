@@ -24,8 +24,8 @@ inline ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
 
 namespace app {
 
-constexpr float kWidth = 1160.0f;
-constexpr float kHeight = 700.0f;
+constexpr float kWidth = 750.0f;
+constexpr float kHeight = 560.0f;
 constexpr float kLoginWidth = 460.0f;
 constexpr float kLoginHeight = 560.0f;
 constexpr wchar_t kTitle[] = L"Sachin Loader";
