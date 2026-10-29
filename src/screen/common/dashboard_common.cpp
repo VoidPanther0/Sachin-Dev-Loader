@@ -261,6 +261,20 @@ void icon_updates(ImVec2 c, ImU32 color)
 	draw->AddLine(ImVec2(c.x + 5.0f, c.y + 7.0f), ImVec2(c.x + 2.0f, c.y), color, 1.6f);
 }
 
+void icon_socials(ImVec2 c, ImU32 color)
+{
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddLine(ImVec2(c.x - 7.0f, c.y - 5.0f), ImVec2(c.x - 4.0f, c.y - 2.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x - 4.0f, c.y - 2.0f), ImVec2(c.x, c.y), color, 1.6f);
+	draw->AddLine(ImVec2(c.x, c.y), ImVec2(c.x + 4.0f, c.y - 2.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x + 4.0f, c.y - 2.0f), ImVec2(c.x + 7.0f, c.y - 5.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x + 7.0f, c.y - 5.0f), ImVec2(c.x - 7.0f, c.y - 5.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x - 7.0f, c.y + 5.0f), ImVec2(c.x - 4.0f, c.y + 2.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x - 4.0f, c.y + 2.0f), ImVec2(c.x, c.y), color, 1.6f);
+	draw->AddLine(ImVec2(c.x, c.y), ImVec2(c.x + 4.0f, c.y + 2.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x + 4.0f, c.y + 2.0f), ImVec2(c.x + 7.0f, c.y + 5.0f), color, 1.6f);
+	draw->AddLine(ImVec2(c.x + 7.0f, c.y + 5.0f), ImVec2(c.x - 7.0f, c.y + 5.0f), color, 1.6f);
+}
 
 void icon_logout(ImVec2 c, ImU32 color)
 {
