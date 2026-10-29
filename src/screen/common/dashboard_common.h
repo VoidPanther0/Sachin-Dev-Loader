@@ -113,6 +113,7 @@ void icon_settings(ImVec2 c, ImU32 color);
 void icon_about(ImVec2 c, ImU32 color);
 void icon_product(ImVec2 c, ImU32 color);
 void icon_game_updates(ImVec2 c, ImU32 color);
+void icon_updates(ImVec2 c, ImU32 color);
 void icon_socials(ImVec2 c, ImU32 color);
 void icon_logout(ImVec2 c, ImU32 color);
 void icon_search(ImVec2 c, ImU32 color);
