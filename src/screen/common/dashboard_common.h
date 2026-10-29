@@ -52,6 +52,9 @@ enum Page
 	PageAccount,
 	PageSettings,
 	PageAbout,
+	PageProduct,
+	PageGameUpdates,
+	PageSocials,
 	PageCount,
 };
 
@@ -108,6 +111,9 @@ void icon_theme(ImVec2 c, ImU32 color);
 void icon_account(ImVec2 c, ImU32 color);
 void icon_settings(ImVec2 c, ImU32 color);
 void icon_about(ImVec2 c, ImU32 color);
+void icon_product(ImVec2 c, ImU32 color);
+void icon_game_updates(ImVec2 c, ImU32 color);
+void icon_socials(ImVec2 c, ImU32 color);
 void icon_logout(ImVec2 c, ImU32 color);
 void icon_search(ImVec2 c, ImU32 color);
 
@@ -260,6 +266,9 @@ void DrawTheme();
 void DrawAccount();
 void DrawSettings();
 void DrawAbout();
+void DrawProduct();
+void DrawGameUpdates();
+void DrawSocials();
 
 // Called once per frame by the shell; ends a finished launch message.
 void tick_launch();
