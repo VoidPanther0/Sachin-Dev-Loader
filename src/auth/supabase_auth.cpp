@@ -53,6 +53,7 @@ std::vector<sdauth::Component> g_components;
 std::atomic<long long> g_expires_at(0);
 std::atomic<int> g_launch_status(static_cast<int>(sdauth::StatusIdle));
 std::atomic<int> g_launch_progress(0);
+std::atomic<bool> g_launch_cancel(false);
 std::atomic<bool> g_launch_busy(false);
 std::string g_launch_name;
 std::string g_launch_message;
@@ -74,6 +75,10 @@ std::atomic<int> g_update_progress(0);
 std::string g_update_message;
 // Path of the swapped loader, started again by RestartLoader().
 std::wstring g_update_target;
+// Manual component refresh from the dashboard (Applications page).
+std::atomic<int> g_refresh_status(static_cast<int>(sdauth::StatusIdle));
+std::atomic<bool> g_refresh_busy(false);
+std::string g_refresh_message;
 
 bool IsSha256Hex(const std::string& value);
 
@@ -573,6 +578,16 @@ bool HttpDownload(const std::wstring& url, std::vector<unsigned char>& bytes, st
 		}
 
 		for (;;) {
+			// The launch path (progress != nullptr) can be cancelled from the
+			// Downloads page while the body is still arriving.
+			if (progress != nullptr && g_launch_cancel.load()) {
+				error = "Download cancelled";
+				WinHttpCloseHandle(request);
+				WinHttpCloseHandle(connection);
+				WinHttpCloseHandle(session);
+				return false;
+			}
+
 			DWORD available = 0;
 			if (!WinHttpQueryDataAvailable(request, &available) || available == 0)
 				break;
@@ -857,6 +872,11 @@ void RunLaunch(std::string name, std::string url, std::string expected_sha) {
 	}
 
 	SetLaunch(sdauth::StatusWorking, 98, "Starting " + name + "...");
+	if (g_launch_cancel.load()) {
+		SetLaunch(sdauth::StatusError, 0, "Cancelled. Nothing was started");
+		return;
+	}
+
 	std::string error;
 	if (!StartProgram(target, directory, error)) {
 		SetLaunch(sdauth::StatusError, 0, error);
@@ -1083,6 +1103,81 @@ void RunStartup(std::string hwid) {
 	SetStartup(sdauth::StatusOk, "Ready");
 }
 
+// ------------------------------------------------- manual check / refresh ----
+
+void SetRefresh(int status, const std::string& message) {
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_refresh_message = message;
+	}
+	g_refresh_status.store(status);
+}
+
+// Update check started from the About page. Re-runs the public startup request
+// but only refreshes the update information; the signed-in component list is
+// never replaced with the non-launchable public list.
+void RunUpdateCheck() {
+	SetStartup(sdauth::StatusWorking, "Checking for updates...");
+
+	const std::string exe_hash = ExecutableHash();
+	if (exe_hash.empty()) {
+		SetStartup(sdauth::StatusError, "Cannot read the loader file");
+		return;
+	}
+
+	std::string body =
+		"{\"action\":\"startup\",\"hwid\":\"" + JsonEscape(sdauth::MachineHwid()) +
+		"\",\"version\":\"" + JsonEscape(app::kVersion) +
+		"\",\"exe_hash\":\"" + JsonEscape(exe_hash) + "\"}";
+
+	const HttpResponse response = HttpPost(ApiUrl(kAuthFunctionPath), FunctionHeaders(), body);
+	if (!response.transport_ok) {
+		SetStartup(sdauth::StatusError, response.error.empty() ? "Cannot reach the server" : response.error);
+		return;
+	}
+
+	std::string error;
+	std::vector<sdauth::Component> components;
+	std::string update_url;
+	std::string release_url;
+	std::string sha256;
+	std::string server_version;
+	bool update_required = false;
+	if (response.status != 200 || !ParseComponents(response.body, components, error, update_url, release_url, sha256,
+			server_version, update_required)) {
+		if (error.empty() || response.status != 200)
+			error = ErrorMessage(response, "Update check failed. Try again");
+		SetStartup(sdauth::StatusError, error);
+		return;
+	}
+
+	// Update information only: g_components and the session stay untouched.
+	SetUpdateInfo(update_url, release_url, sha256, server_version, update_required);
+	if (sdauth::StartupUpdateAvailable())
+		SetStartup(sdauth::StatusOk,
+			server_version.empty() ? "An update is available" : "Update available: " + server_version);
+	else
+		SetStartup(sdauth::StatusOk, "You are on the latest version");
+}
+
+// Re-runs the signed-in bootstrap so the component list, expiry and update
+// information come fresh from the server.
+void RunRefresh() {
+	const sdauth::Session session = sdauth::GetSession();
+	if (!session.valid) {
+		SetRefresh(sdauth::StatusError, "No active session");
+		return;
+	}
+
+	std::string error;
+	if (!RunBootstrap(session.access_token, sdauth::MachineHwid(), error)) {
+		SetRefresh(sdauth::StatusError, error.empty() ? "Refresh failed. Try again" : error);
+		return;
+	}
+
+	SetRefresh(sdauth::StatusOk, "Application list updated");
+}
+
 void RevokeToken(const std::string& token) {
 	std::string body = "{\"action\":\"logout\",\"access_token\":\"" + JsonEscape(token) + "\"}";
 	ZeroOnExit wipe_body(body);
@@ -1296,6 +1391,45 @@ void StartStartup() {
 	}).detach();
 }
 
+void StartUpdateCheck() {
+	if (g_startup_busy.exchange(true))
+		return;
+
+	SetUpdateInfo("", "", "", "", false);
+	SetStartup(StatusWorking, "Checking for updates...");
+
+	std::thread([]() {
+		RunUpdateCheck();
+		g_startup_busy.store(false);
+	}).detach();
+}
+
+void StartComponentRefresh() {
+	if (!HasSession()) {
+		SetRefresh(StatusError, "Sign in first");
+		return;
+	}
+
+	if (g_refresh_busy.exchange(true))
+		return;
+
+	SetRefresh(StatusWorking, "Refreshing...");
+
+	std::thread([]() {
+		RunRefresh();
+		g_refresh_busy.store(false);
+	}).detach();
+}
+
+int RefreshStatus() {
+	return g_refresh_status.load();
+}
+
+std::string RefreshMessage() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_refresh_message;
+}
+
 int StartupStatus() {
 	return g_startup_status.load();
 }
@@ -1462,6 +1596,7 @@ bool LaunchComponent(const std::string& name) {
 		g_launch_name = name;
 	}
 	SetLaunch(StatusWorking, 1, "Preparing " + name + "...");
+	g_launch_cancel.store(false);
 
 	std::thread([name, url, sha]() {
 		RunLaunch(name, url, sha);
@@ -1492,6 +1627,12 @@ void ResetLaunch() {
 	if (g_launch_busy.load())
 		return;
 	g_launch_status.store(StatusIdle);
+}
+
+// Stops a running component download. The worker reports the cancelled state
+// as a normal launch error, so the UI never waits forever.
+void CancelLaunch() {
+	g_launch_cancel.store(true);
 }
 
 void ReportLocalError(const std::string& message) {

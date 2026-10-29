@@ -9,9 +9,9 @@
 
 #pragma comment(lib, "comdlg32.lib")
 
-// DLL Tools: reads the PE header of a file you pick and shows what it is. This
-// is a read-only check for your own apps and authorized tests. Nothing is
-// loaded, started or injected.
+// DLL Tools: the released components with their real state on top, and a
+// read-only PE header check for a file you pick below. Nothing is loaded,
+// started or injected by the check.
 
 namespace dash {
 
@@ -181,17 +181,74 @@ void value_row(const Rect& card, float y, const char* label, const std::string& 
 	info_row(card, y, label, value.c_str(), kText);
 }
 
+// ------------------------------------------------------------- components ----
+
+// Compact list of the released components with their real server state and
+// whether the file is already on this PC.
+void draw_components_card(const Rect& card)
+{
+	box(card, kCard, 14.0f, card_border());
+	text(font.semibold, 15.0f, ImVec2(card.min.x + 24.0f, card.min.y + 16.0f), kText, "Components");
+	text(font.caption, 11.0f, ImVec2(card.min.x + 160.0f, card.min.y + 20.0f), kMuted,
+		"Released by the server. The PE check below works on any file you own.");
+
+	divider(card.min.x + 24.0f, card.max.x - 24.0f, card.min.y + 48.0f);
+
+	const std::vector<sdauth::Component> components = sdauth::Components();
+	const Rect area = rect(card.min.x + 24.0f, card.min.y + 58.0f, card.max.x - 20.0f, card.max.y - 10.0f);
+
+	if (components.empty())
+	{
+		text(font.caption, 11.0f, ImVec2(area.min.x, area.min.y + 8.0f), kDim,
+			"No components were released for this account.");
+		return;
+	}
+
+	constexpr float row_h = 30.0f;
+	ImGui::SetCursorScreenPos(area.min);
+	ImGui::BeginChild("##tool_components", ImVec2(width(area), height(area)), 0, ImGuiWindowFlags_NoBackground);
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+
+	for (int i = 0; i < static_cast<int>(components.size()); ++i)
+	{
+		const sdauth::Component& component = components[static_cast<std::size_t>(i)];
+		const float y = origin.y + static_cast<float>(i) * row_h;
+
+		draw->PushClipRect(ImVec2(origin.x, y), ImVec2(origin.x + 220.0f, y + row_h - 4.0f), true);
+		text(font.body, 13.0f, ImVec2(origin.x, y + 3.0f), kText, component.name.c_str());
+		draw->PopClipRect();
+
+		char version[48];
+		std::snprintf(version, sizeof(version), "v%s", component.version.c_str());
+		text(font.caption, 11.0f, ImVec2(origin.x + 230.0f, y + 5.0f), kMuted, version);
+
+		const ImVec4 status = status_color(component.status);
+		draw->AddCircleFilled(ImVec2(origin.x + 330.0f, y + 11.0f), 3.0f, color_u32(status), 10);
+		text(font.caption, 11.0f, ImVec2(origin.x + 342.0f, y + 5.0f),
+			state.light ? dim(status, 0.25f) : lift(status, 0.10f), status_label(component.status).c_str());
+
+		const long long cached = component_cache_size(component.name);
+		text(font.caption, 11.0f, ImVec2(origin.x + 440.0f, y + 5.0f),
+			cached >= 0 ? kGreen : kDim, cached >= 0 ? format_size(cached).c_str() : "Not downloaded");
+	}
+
+	ImGui::SetCursorScreenPos(origin);
+	ImGui::Dummy(ImVec2(1.0f, static_cast<float>(components.size()) * row_h));
+	ImGui::EndChild();
+}
+
 } // namespace
 
 void DrawDllTools()
 {
-	draw_page_header("DLL Tools", "Check a DLL or EXE file. Read-only, for your own apps.");
+	draw_components_card(rect(kContentLeft, kContentTop, kContentRight, 248.0f));
 
 	// Left: picker.
-	const Rect picker = rect(kContentLeft, kContentTop, 600.0f, kContentBottom);
+	const Rect picker = rect(kContentLeft, 264.0f, 640.0f, kContentBottom);
 	card_frame(picker, "Validate a file", "Reads the PE header only. Nothing is loaded or started.");
 
-	const Rect drop = rect(picker.min.x + 28.0f, picker.min.y + 84.0f, picker.max.x - 28.0f, picker.min.y + 236.0f);
+	const Rect drop = rect(picker.min.x + 28.0f, picker.min.y + 76.0f, picker.max.x - 28.0f, picker.min.y + 216.0f);
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	draw->AddRect(drop.min, drop.max, color_u32(fade(accent_color(), 0.35f)), 12.0f, 0, 1.2f);
 	draw->AddRectFilled(drop.min, drop.max, color_u32(fade(accent_color(), 0.04f)), 12.0f);
@@ -199,14 +256,16 @@ void DrawDllTools()
 	const ImVec2 c = center(drop);
 	icon_dll(ImVec2(c.x, c.y - 30.0f), color_u32(lift(accent_color(), 0.15f)));
 	const char* hint = pe.checked ? pe.name.c_str() : "No file selected";
+	draw->PushClipRect(ImVec2(drop.min.x + 8.0f, c.y - 20.0f), ImVec2(drop.max.x - 8.0f, c.y + 8.0f), true);
 	const float hint_w = text_width(font.semibold, 15.0f, hint);
 	text(font.semibold, 15.0f, ImVec2(c.x - hint_w * 0.5f, c.y - 2.0f), kText, hint);
+	draw->PopClipRect();
 
 	const char* sub = "Supports .dll and .exe files";
 	const float sub_w = text_width(font.caption, 11.0f, sub);
 	text(font.caption, 11.0f, ImVec2(c.x - sub_w * 0.5f, c.y + 22.0f), kMuted, sub);
 
-	ImGui::SetCursorScreenPos(ImVec2(picker.min.x + 28.0f, picker.min.y + 256.0f));
+	ImGui::SetCursorScreenPos(ImVec2(picker.min.x + 28.0f, picker.min.y + 236.0f));
 	if (ImGui::Button("Choose file...", ImVec2(160.0f, 38.0f)))
 	{
 		const std::wstring path = pick_file();
@@ -218,23 +277,23 @@ void DrawDllTools()
 
 	if (pe.checked)
 	{
-		ImGui::SetCursorScreenPos(ImVec2(picker.min.x + 204.0f, picker.min.y + 256.0f));
+		ImGui::SetCursorScreenPos(ImVec2(picker.min.x + 204.0f, picker.min.y + 236.0f));
 		if (secondary_button("Clear", ImVec2(100.0f, 38.0f)))
 			pe = PeInfo();
 	}
 
-	text(font.caption, 10.0f, ImVec2(picker.min.x + 28.0f, picker.min.y + 320.0f), kDim, "NOTE");
-	text_wrapped(font.body, 13.0f, ImVec2(picker.min.x + 28.0f, picker.min.y + 340.0f), kMuted,
+	text(font.caption, 10.0f, ImVec2(picker.min.x + 28.0f, picker.min.y + 292.0f), kDim, "NOTE");
+	text_wrapped(font.body, 12.0f, ImVec2(picker.min.x + 28.0f, picker.min.y + 310.0f), kMuted,
 		"Use this to confirm a file is a valid 32-bit or 64-bit DLL before you ship or load it in your own "
 		"application. It does not inject or start anything.", width(picker) - 56.0f);
 
 	// Right: result.
-	const Rect result = rect(616.0f, kContentTop, kContentRight, kContentBottom);
+	const Rect result = rect(656.0f, 264.0f, kContentRight, kContentBottom);
 	card_frame(result, "Result", pe.checked ? "PE header details" : "Choose a file to see its details.");
 
 	if (!pe.checked)
 	{
-		draw_empty_state(rect(result.min.x + 28.0f, result.min.y + 84.0f, result.max.x - 28.0f, result.max.y - 28.0f),
+		draw_empty_state(rect(result.min.x + 28.0f, result.min.y + 76.0f, result.max.x - 28.0f, result.max.y - 28.0f),
 			"Nothing checked", "Pick a DLL or EXE on the left.");
 		return;
 	}
@@ -244,7 +303,7 @@ void DrawDllTools()
 
 	if (!pe.ok)
 	{
-		text_wrapped(font.body, 14.0f, ImVec2(result.min.x + 28.0f, result.min.y + 96.0f), kRed,
+		text_wrapped(font.body, 14.0f, ImVec2(result.min.x + 28.0f, result.min.y + 88.0f), kRed,
 			pe.error.c_str(), width(result) - 56.0f);
 		return;
 	}
@@ -260,21 +319,21 @@ void DrawDllTools()
 	char entry[24];
 	std::snprintf(entry, sizeof(entry), "0x%08lX", pe.entry_point);
 
-	float y = result.min.y + 92.0f;
+	float y = result.min.y + 76.0f;
 	value_row(result, y, "NAME", pe.name);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "TYPE", pe.type);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "ARCHITECTURE", pe.arch);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "SIZE", size_text);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "SECTIONS", sections);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "SUBSYSTEM", pe.subsystem);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "ENTRY POINT", entry);
-	y += 38.0f;
+	y += 34.0f;
 	value_row(result, y, "BUILT", pe.timestamp);
 }
 

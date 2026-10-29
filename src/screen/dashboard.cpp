@@ -5,8 +5,9 @@
 #include <cstdio>
 #include <string>
 
-// Window shell shown after sign-in: title bar, sidebar, footer and the current
-// page. Every page lives in its own file; see dashboard_common.h.
+// Window shell shown after sign-in: sidebar with the logo and navigation, the
+// title bar with the page title, session pill and window buttons, and the
+// current page. Every page lives in its own file; see dashboard_common.h.
 
 namespace screen_dashboard {
 
@@ -18,64 +19,86 @@ using namespace dash;
 struct NavEntry
 {
 	const char* label;
+	const char* subtitle;
 	Page page;
-	void (*icon)(ImVec2, ImU32);
+	IconFn icon;
 };
 
 const NavEntry kNav[] = {
-	{ "Home",         PageHome,         icon_home },
-	{ "Applications", PageApplications, icon_apps },
-	{ "Downloads",    PageDownloads,    icon_download },
-	{ "DLL Tools",    PageDllTools,     icon_dll },
-	{ "Theme",        PageTheme,        icon_theme },
-	{ "Account",      PageAccount,      icon_account },
-	{ "Settings",     PageSettings,     icon_settings },
-	{ "About",        PageAbout,        icon_about },
+	{ "Home",         "Your loader at a glance.",                          PageHome,         icon_home },
+	{ "Applications", "Apps, games and tools released for this account.",  PageApplications, icon_apps },
+	{ "Downloads",    "Component files and download activity.",            PageDownloads,    icon_download },
+	{ "DLL Tools",    "Component files and a read-only PE check.",         PageDllTools,     icon_dll },
+	{ "Theme",        "Make the loader yours. Changes apply live.",        PageTheme,        icon_theme },
+	{ "Account",      "Your profile, access and device.",                  PageAccount,      icon_account },
+	{ "Settings",     "Interface, performance and launch options.",        PageSettings,     icon_settings },
+	{ "About",        "Version, backend status and credits.",              PageAbout,        icon_about },
 };
 
-constexpr float kNavTop = 108.0f;
-constexpr float kNavStep = 48.0f;
+constexpr int kNavCount = static_cast<int>(sizeof(kNav) / sizeof(kNav[0]));
+
+constexpr float kNavTop = 126.0f;
+constexpr float kNavStep = 46.0f;
+constexpr float kNavItemHeight = 40.0f;
+
+// Hover highlight per page; eased so the sidebar never snaps.
+float g_nav_hover[kNavCount] = {};
 
 void draw_background()
 {
+	const ImVec2 display = ImGui::GetIO().DisplaySize;
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(app::kWidth, app::kHeight), color_u32(kHomeBg));
-	if (!shared.background_glow)
+	draw->AddRectFilled(ImVec2(0.0f, 0.0f), display, color_u32(kHomeBg));
+
+	if (!shared.background_glow || shared.reduced_effects)
 		return;
 
-	draw->AddCircleFilled(ImVec2(app::kWidth - 40.0f, 20.0f), 320.0f,
-		color_u32(fade(kPurple, 0.05f)), 64);
-	draw->AddCircleFilled(ImVec2(180.0f, app::kHeight + 60.0f), 260.0f,
-		color_u32(fade(kBlue, 0.04f)), 64);
+	draw->AddCircleFilled(ImVec2(display.x - 40.0f, 20.0f), 320.0f,
+		color_u32(fade(kPurple, state.light ? 0.04f : 0.05f)), 64);
+	draw->AddCircleFilled(ImVec2(180.0f, display.y + 60.0f), 260.0f,
+		color_u32(fade(kBlue, state.light ? 0.03f : 0.04f)), 64);
 }
 
+// The title bar covers the content area only; the sidebar owns the top-left
+// corner with the logo.
 void draw_title_bar()
 {
+	const NavEntry& entry = (state.page >= 0 && state.page < kNavCount) ? kNav[state.page] : kNav[0];
+
 	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddRectFilled(ImVec2(kSidebarWidth, 0.0f), ImVec2(app::kWidth, kTitleHeight), color_u32(kHomeBg));
+	draw->AddLine(ImVec2(kSidebarWidth, kTitleHeight - 1.0f), ImVec2(app::kWidth, kTitleHeight - 1.0f),
+		color_u32(kLine), 1.0f);
 
-	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(app::kWidth, kTitleHeight), color_u32(kSidebar));
-	draw->AddLine(ImVec2(0.0f, kTitleHeight - 1.0f), ImVec2(app::kWidth, kTitleHeight - 1.0f), color_u32(kLine), 1.0f);
+	// Page title with the accent bar from the reference design.
+	const Rect accent_bar = rect(256.0f, 20.0f, 260.0f, 44.0f);
+	box(accent_bar, accent_color(), 2.0f);
+	text(font.semibold, 19.0f, ImVec2(272.0f, 12.0f), kText, entry.label);
 
-	login_ui::DrawLogo(ImVec2(34.0f, 32.0f), 34.0f);
+	draw->PushClipRect(ImVec2(272.0f, 36.0f), ImVec2(900.0f, 54.0f), true);
+	text(font.caption, 11.0f, ImVec2(272.0f, 38.0f), kMuted, entry.subtitle);
+	draw->PopClipRect();
 
-	text(font.semibold, 15.0f, ImVec2(60.0f, 14.0f), kText, "Sachin Loader");
-	text(font.caption, 10.0f, ImVec2(60.0f, 34.0f), kMuted, "Apps and games, one place");
-
-	ImGui::SetCursorScreenPos(ImVec2(0.0f, 0.0f));
-	ImGui::InvisibleButton("##title_drag", ImVec2(app::kWidth - 96.0f, kTitleHeight));
+	// Drag strip: everything left of the window buttons.
+	ImGui::SetCursorScreenPos(ImVec2(kSidebarWidth, 0.0f));
+	ImGui::InvisibleButton("##title_drag", ImVec2(820.0f, kTitleHeight));
 	if (ImGui::IsItemClicked())
 		StartWindowDrag();
 
-	if (window_button("##minimize", rect(app::kWidth - 84.0f, 14.0f, app::kWidth - 52.0f, 46.0f), false))
+	// Session state is reported from the real session, never assumed.
+	const bool live = sdauth::HasSession();
+	pill(rect(924.0f, 20.0f, 1044.0f, 44.0f), live ? "SESSION ACTIVE" : "SESSION ENDED", live ? kGreen : kRed);
+
+	if (window_button("##minimize", rect(1052.0f, 16.0f, 1084.0f, 48.0f), false))
 		ShowWindow(g_hwnd, SW_MINIMIZE);
 
-	if (window_button("##close", rect(app::kWidth - 44.0f, 14.0f, app::kWidth - 12.0f, 46.0f), true))
+	if (window_button("##close", rect(1116.0f, 16.0f, 1148.0f, 48.0f), true))
 		PostQuitMessage(0);
 }
 
-bool nav_item(const NavEntry& entry, float y)
+bool nav_item(const NavEntry& entry, float y, float hover)
 {
-	const Rect r = rect(16.0f, y, kSidebarWidth - 16.0f, y + 44.0f);
+	const Rect r = rect(16.0f, y, kSidebarWidth - 16.0f, y + kNavItemHeight);
 	ImGui::PushID(entry.label);
 	ImGui::SetCursorScreenPos(r.min);
 	const bool clicked = ImGui::InvisibleButton("##nav", ImVec2(width(r), height(r)));
@@ -88,47 +111,74 @@ bool nav_item(const NavEntry& entry, float y)
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	if (active)
 	{
-		box(r, fade(accent_color(), 0.14f), 10.0f);
-		draw->AddRect(r.min, r.max, color_u32(fade(accent_color(), 0.35f)), 10.0f, 0, 1.0f);
-		draw->AddRectFilled(ImVec2(r.min.x + 1.0f, r.min.y + 11.0f), ImVec2(r.min.x + 3.0f, r.max.y - 11.0f),
-			color_u32(accent_color()), 2.0f);
+		// Blue to purple gradient, as in the reference design.
+		gradient_box(r, accent_color(), kPurple, 10.0f);
+		if (!shared.reduced_effects)
+			draw->AddRect(r.min, r.max, color_u32(fade(kWhite, 0.18f)), 10.0f, 0, 1.0f);
 	}
-	else if (hovered)
+	else if (hover > 0.01f)
 	{
-		box(r, kCardSoft, 10.0f);
+		box(r, fade(kCardSoft, hover), 10.0f);
 	}
 
-	entry.icon(ImVec2(r.min.x + 28.0f, r.min.y + 22.0f),
-		color_u32(active ? lift(accent_color(), 0.15f) : kNavText));
+	const ImU32 icon_color = color_u32(active ? kWhite : fade(kNavText, 0.55f + 0.45f * hover));
+	entry.icon(ImVec2(r.min.x + 28.0f, r.min.y + kNavItemHeight * 0.5f), icon_color);
 
-	text(font.semibold, 14.0f, ImVec2(r.min.x + 48.0f, r.min.y + 13.0f),
-		active ? kText : kNavText, entry.label);
+	const ImVec4 label_color = active ? kWhite : fade(kNavText, 0.55f + 0.45f * hover);
+	text(font.semibold, 14.0f, ImVec2(r.min.x + 48.0f, r.min.y + 12.0f), label_color, entry.label);
 	return clicked;
 }
 
-// Small badge at the right edge of a nav item: a count or an accent dot.
+// Small badge at the right edge of a nav item: a count.
 void nav_badge(float y, const char* value)
 {
 	const float w = text_width(font.caption, 10.0f, value) + 14.0f;
-	const Rect b = rect(kSidebarWidth - 30.0f - w, y + 12.0f, kSidebarWidth - 30.0f, y + 32.0f);
+	const Rect b = rect(kSidebarWidth - 30.0f - w, y + 10.0f, kSidebarWidth - 30.0f, y + 30.0f);
 	box(b, fade(accent_color(), 0.18f), 10.0f);
-	text_center(font.caption, 10.0f, b, lift(accent_color(), 0.2f), value);
+	const ImVec4 label_color = state.light ? dim(accent_color(), 0.25f) : lift(accent_color(), 0.20f);
+	text_center(font.caption, 10.0f, b, label_color, value);
 }
 
 void draw_sidebar()
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddRectFilled(ImVec2(0.0f, kTitleHeight), ImVec2(kSidebarWidth, app::kHeight), color_u32(kSidebar));
-	draw->AddLine(ImVec2(kSidebarWidth - 1.0f, kTitleHeight), ImVec2(kSidebarWidth - 1.0f, app::kHeight),
+	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(kSidebarWidth, app::kHeight), color_u32(kSidebar));
+	draw->AddLine(ImVec2(kSidebarWidth - 1.0f, 0.0f), ImVec2(kSidebarWidth - 1.0f, app::kHeight),
 		color_u32(kLine), 1.0f);
 
-	text(font.caption, 10.0f, ImVec2(28.0f, 86.0f), kDim, "MENU");
+	// ---------------------------------------------------------------- logo --
+	login_ui::DrawLogo(ImVec2(kSidebarWidth * 0.5f, 46.0f), 44.0f);
 
+	const char* wordmark = "SACHIN LOADER";
+	const float wordmark_w = text_width(font.semibold, 15.0f, wordmark);
+	gradient_text(font.semibold, 15.0f, ImVec2((kSidebarWidth - wordmark_w) * 0.5f, 78.0f), wordmark,
+		lift(kBlue, 0.15f), kPurple);
+
+	const char* dots = "PLAY  \u2022  LAUNCH  \u2022  ENJOY";
+	const float tagline_w = text_width(font.caption, 9.0f, dots);
+	text(font.caption, 9.0f, ImVec2((kSidebarWidth - tagline_w) * 0.5f, 100.0f), kDim, dots);
+
+	divider(24.0f, kSidebarWidth - 24.0f, 116.0f);
+
+	// ------------------------------------------------------------ nav items --
 	float y = kNavTop;
-	for (const NavEntry& entry : kNav)
+	for (int i = 0; i < kNavCount; ++i)
 	{
-		if (nav_item(entry, y))
+		const NavEntry& entry = kNav[i];
+		const bool active = state.page == entry.page;
+
+		// The highlight eases toward the target; nav_item() draws the value
+		// from the previous frame and the new one is computed right after the
+		// button was submitted, so hover can be read back safely here.
+		float& anim = g_nav_hover[i];
+		if (nav_item(entry, y, anim))
 			state.page = entry.page;
+
+		const float wanted = active ? 1.0f : (ImGui::IsItemHovered() ? 1.0f : 0.0f);
+		if (!shared.animations || shared.reduced_effects)
+			anim = wanted;
+		else
+			anim += (wanted - anim) * clampf(ImGui::GetIO().DeltaTime * 14.0f, 0.0f, 1.0f);
 
 		if (entry.page == PageApplications)
 		{
@@ -143,15 +193,15 @@ void draw_sidebar()
 		y += kNavStep;
 	}
 
-	// Account block at the bottom of the sidebar.
-	const Rect account = rect(16.0f, 556.0f, kSidebarWidth - 16.0f, 620.0f);
-	box(account, kCard, 12.0f, &kBorder);
+	// ------------------------------------------------------- account block ---
+	const Rect account = rect(16.0f, 548.0f, kSidebarWidth - 16.0f, 616.0f);
+	box(account, kCard, 12.0f, card_border());
 
 	const sdauth::Session session = sdauth::GetSession();
 	const char initial = session.username.empty() ? '?' : static_cast<char>(
 		std::toupper(static_cast<unsigned char>(session.username[0])));
 
-	const ImVec2 avatar_center(42.0f, 588.0f);
+	const ImVec2 avatar_center(44.0f, 582.0f);
 	draw->AddCircleFilled(avatar_center, 17.0f, color_u32(fade(accent_color(), 0.18f)), 32);
 	draw->AddCircle(avatar_center, 17.0f, color_u32(fade(accent_color(), 0.45f)), 32, 1.2f);
 	char letter[2] = { initial, '\0' };
@@ -159,32 +209,43 @@ void draw_sidebar()
 	text(font.semibold, 15.0f, ImVec2(avatar_center.x - letter_w * 0.5f, avatar_center.y - 8.0f),
 		lift(accent_color(), 0.2f), letter);
 
-	text(font.semibold, 13.0f, ImVec2(68.0f, 570.0f), kText,
-		session.username.empty() ? "Guest" : session.username.c_str());
-	text(font.caption, 10.0f, ImVec2(68.0f, 591.0f), kGreen, "Signed in");
+	const char* name = session.username.empty() ? "Guest" : session.username.c_str();
+	draw->PushClipRect(ImVec2(70.0f, 556.0f), ImVec2(kSidebarWidth - 26.0f, 580.0f), true);
+	text(font.semibold, 13.0f, ImVec2(70.0f, 562.0f), kText, name);
+	draw->PopClipRect();
 
-	ImGui::SetCursorScreenPos(ImVec2(24.0f, 632.0f));
-	if (ImGui::InvisibleButton("##sign_out_sidebar", ImVec2(kSidebarWidth - 48.0f, 36.0f)))
+	const bool live = sdauth::HasSession();
+	draw->AddCircleFilled(ImVec2(74.0f, 590.0f), 3.0f, color_u32(live ? kGreen : kRed), 8);
+	text(font.caption, 10.0f, ImVec2(84.0f, 585.0f), live ? kGreen : kRed, live ? "Online" : "Offline");
+
+	// ----------------------------------------------------------- sign out ---
+	const Rect sign_out = rect(16.0f, 628.0f, kSidebarWidth - 16.0f, 668.0f);
+	ImGui::SetCursorScreenPos(sign_out.min);
+	if (ImGui::InvisibleButton("##sign_out_sidebar", ImVec2(width(sign_out), height(sign_out))))
 		screen_login::SignOut();
 	const bool sign_out_hovered = ImGui::IsItemHovered();
 	if (sign_out_hovered)
 	{
 		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-		box(rect(16.0f, 632.0f, kSidebarWidth - 16.0f, 668.0f), kCardSoft, 9.0f);
+		box(sign_out, kCardSoft, 9.0f);
 	}
 
-	icon_logout(ImVec2(36.0f, 650.0f), color_u32(sign_out_hovered ? kText : kNavText));
-	text(font.body, 13.0f, ImVec2(54.0f, 641.0f), sign_out_hovered ? kText : kNavText, "Sign out");
+	icon_logout(ImVec2(sign_out.min.x + 20.0f, sign_out.min.y + 20.0f),
+		color_u32(sign_out_hovered ? kText : kNavText));
+	text(font.body, 13.0f, ImVec2(sign_out.min.x + 40.0f, sign_out.min.y + 11.0f),
+		sign_out_hovered ? kText : kNavText, "Sign out");
 }
 
 void draw_footer()
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	draw->AddLine(ImVec2(kContentLeft, 672.0f), ImVec2(kContentRight, 672.0f), color_u32(kLine), 1.0f);
-	draw->AddCircleFilled(ImVec2(kContentLeft + 4.0f, 690.0f), 3.0f, color_u32(kGreen));
+
+	const ImVec4 state_color = server_state_color();
+	draw->AddCircleFilled(ImVec2(kContentLeft + 4.0f, 690.0f), 3.0f, color_u32(state_color));
 
 	char left[128];
-	std::snprintf(left, sizeof(left), "Sachin Loader v%s  |  Secure  -  Private  -  Fast", app::kVersion);
+	std::snprintf(left, sizeof(left), "Sachin Loader v%s  |  %s", app::kVersion, server_state_text());
 	text(font.caption, 10.0f, ImVec2(kContentLeft + 14.0f, 684.0f), kDim, left);
 
 	if (!shared.show_fps)
@@ -214,18 +275,25 @@ void Render()
 		shared.session_start = GetTickCount64();
 		shared.search[0] = '\0';
 		shared.selected = 0;
+		shared.selected_local = -1;
 		state.page = PageHome;
+		reload_local_apps();
 	}
 	last_frame = frame;
 
 	if (state.page < 0 || state.page >= PageCount)
 		state.page = PageHome;
 
+	// The saved palette applies to the dashboard; the login screens keep the
+	// dark one (see ui.cpp).
+	if (shared.light != state.light)
+		dash::apply_theme(shared.light);
+
 	tick_launch();
 
 	draw_background();
-	draw_title_bar();
 	draw_sidebar();
+	draw_title_bar();
 
 	switch (state.page)
 	{
@@ -240,6 +308,7 @@ void Render()
 	}
 
 	draw_footer();
+	draw_toasts();
 }
 
 } // namespace screen_dashboard

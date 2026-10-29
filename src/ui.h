@@ -15,18 +15,21 @@ namespace ui {
 
 // ------------------------------------------------------------------ theme ----
 
-inline const ImVec4 kBg(0.043f, 0.047f, 0.059f, 1.0f);
-inline const ImVec4 kTitleBg(0.055f, 0.059f, 0.071f, 1.0f);
-inline const ImVec4 kPanel(0.075f, 0.082f, 0.098f, 1.0f);
-inline const ImVec4 kPanel2(0.098f, 0.106f, 0.125f, 1.0f);
-inline const ImVec4 kPanel3(0.129f, 0.141f, 0.165f, 1.0f);
-inline const ImVec4 kLine(1.0f, 1.0f, 1.0f, 0.07f);
-inline const ImVec4 kLineBright(1.0f, 1.0f, 1.0f, 0.13f);
-inline const ImVec4 kText(0.93f, 0.94f, 0.96f, 1.0f);
-inline const ImVec4 kMuted(0.55f, 0.58f, 0.65f, 1.0f);
-inline const ImVec4 kDim(0.38f, 0.40f, 0.46f, 1.0f);
+// Base palette. Mutable so the Theme page can switch between the dark and the
+// light theme at runtime; ui::apply_theme() writes these.
+inline ImVec4 kBg(0.043f, 0.047f, 0.059f, 1.0f);
+inline ImVec4 kTitleBg(0.055f, 0.059f, 0.071f, 1.0f);
+inline ImVec4 kPanel(0.075f, 0.082f, 0.098f, 1.0f);
+inline ImVec4 kPanel2(0.098f, 0.106f, 0.125f, 1.0f);
+inline ImVec4 kPanel3(0.129f, 0.141f, 0.165f, 1.0f);
+inline ImVec4 kLine(1.0f, 1.0f, 1.0f, 0.07f);
+inline ImVec4 kLineBright(1.0f, 1.0f, 1.0f, 0.13f);
+inline ImVec4 kText(0.93f, 0.94f, 0.96f, 1.0f);
+inline ImVec4 kMuted(0.55f, 0.58f, 0.65f, 1.0f);
+inline ImVec4 kDim(0.38f, 0.40f, 0.46f, 1.0f);
 inline const ImVec4 kGreen(0.35f, 0.82f, 0.55f, 1.0f);
 inline const ImVec4 kRed(0.86f, 0.32f, 0.38f, 1.0f);
+inline const ImVec4 kWhite(1.0f, 1.0f, 1.0f, 1.0f);
 
 float clampf(float value, float low, float high);
 ImVec4 lift(const ImVec4& color, float amount);
@@ -41,12 +44,17 @@ struct State
 	int page = 0;            // dash::Page: Home, Applications, Downloads, DLL Tools, ...
 	float accent[3] = { 0.42f, 0.56f, 1.00f };
 	float fps = 0.0f;
+	bool light = false;      // palette currently applied by ui::apply_theme()
 	std::string status = "Ready.";
 };
 
 extern State state;
 
 ImVec4 accent_color();
+
+// Loads the dark (false) or light (true) base palette. Callers that need the
+// dashboard palette as well use dash::apply_theme(), which calls this.
+void apply_theme(bool light);
 
 // ------------------------------------------------------------------ fonts ----
 

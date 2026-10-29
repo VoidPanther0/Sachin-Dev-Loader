@@ -14,7 +14,7 @@ namespace {
 
 void draw_profile_card(const Rect& card)
 {
-	box(card, kCard, 14.0f, &kBorder);
+	box(card, kCard, 14.0f, card_border());
 
 	const sdauth::Session session = sdauth::GetSession();
 	const std::string name = session.username.empty() ? "Guest" : session.username;
@@ -93,8 +93,6 @@ void draw_device_card(const Rect& card)
 
 void DrawAccount()
 {
-	draw_page_header("Account", "Your profile, access and device.");
-
 	draw_profile_card(rect(kContentLeft, kContentTop, 690.0f, kContentBottom));
 	draw_device_card(rect(706.0f, kContentTop, kContentRight, 452.0f));
 }

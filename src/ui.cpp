@@ -179,8 +179,10 @@ void pill(const Rect& r, const char* value, const ImVec4& color)
 	draw->AddRectFilled(r.min, r.max, color_u32(fade(color, 0.10f)), height(r) * 0.5f);
 	draw->AddRect(r.min, r.max, color_u32(fade(color, 0.22f)), height(r) * 0.5f, 0, 1.0f);
 	draw->AddCircleFilled(ImVec2(r.min.x + 12.0f, r.min.y + height(r) * 0.5f), 2.5f, color_u32(color));
+	// The tint background is light on a light theme, so darken the text there.
+	const ImVec4 value_color = state.light ? dim(color, 0.32f) : lift(color, 0.18f);
 	text(font.caption, 10.0f, ImVec2(r.min.x + 20.0f, r.min.y + (height(r) - 10.0f) * 0.5f - 1.0f),
-		lift(color, 0.18f), value);
+		value_color, value);
 }
 
 bool secondary_button(const char* value, const ImVec2& size)
@@ -227,6 +229,38 @@ void draw_card(const Rect& r, const char* title, const char* description)
 	box(r, kPanel, 14.0f, &kLine);
 	text(font.semibold, 17.0f, ImVec2(r.min.x + 22.0f, r.min.y + 20.0f), kText, title);
 	text(font.caption, 12.0f, ImVec2(r.min.x + 22.0f, r.min.y + 46.0f), kMuted, description);
+}
+
+void apply_theme(bool light)
+{
+	state.light = light;
+
+	if (light)
+	{
+		kBg       = ImVec4(0.929f, 0.941f, 0.961f, 1.0f);
+		kTitleBg  = ImVec4(0.965f, 0.969f, 0.980f, 1.0f);
+		kPanel     = ImVec4(0.988f, 0.988f, 0.996f, 1.0f);
+		kPanel2    = ImVec4(0.898f, 0.910f, 0.937f, 1.0f);
+		kPanel3    = ImVec4(0.847f, 0.863f, 0.902f, 1.0f);
+		kLine      = ImVec4(0.000f, 0.000f, 0.000f, 0.09f);
+		kLineBright= ImVec4(0.000f, 0.000f, 0.000f, 0.18f);
+		kText      = ImVec4(0.075f, 0.094f, 0.145f, 1.0f);
+		kMuted     = ImVec4(0.330f, 0.360f, 0.430f, 1.0f);
+		kDim       = ImVec4(0.480f, 0.510f, 0.580f, 1.0f);
+	}
+	else
+	{
+		kBg       = ImVec4(0.043f, 0.047f, 0.059f, 1.0f);
+		kTitleBg  = ImVec4(0.055f, 0.059f, 0.071f, 1.0f);
+		kPanel     = ImVec4(0.075f, 0.082f, 0.098f, 1.0f);
+		kPanel2    = ImVec4(0.098f, 0.106f, 0.125f, 1.0f);
+		kPanel3    = ImVec4(0.129f, 0.141f, 0.165f, 1.0f);
+		kLine      = ImVec4(1.0f, 1.0f, 1.0f, 0.07f);
+		kLineBright= ImVec4(1.0f, 1.0f, 1.0f, 0.13f);
+		kText      = ImVec4(0.93f, 0.94f, 0.96f, 1.0f);
+		kMuted     = ImVec4(0.55f, 0.58f, 0.65f, 1.0f);
+		kDim       = ImVec4(0.38f, 0.40f, 0.46f, 1.0f);
+	}
 }
 
 void apply_style()
@@ -343,6 +377,16 @@ void app::Render()
 	ui::state.fps += (io.Framerate - ui::state.fps) * ui::clampf(io.DeltaTime * 4.0f, 0.0f, 1.0f);
 
 	ui::apply_accent();
+
+	// The startup, login and sign-in screens are designed on the dark palette
+	// and are shown before any preference is applied to them, so keep them dark
+	// even when a light theme is saved for the dashboard.
+	if (!screen_login::IsLoggedIn() && ui::state.light)
+	{
+		ui::apply_theme(false);
+		ui::apply_style();
+		ui::apply_accent();
+	}
 
 	const ImGuiWindowFlags flags =
 		ImGuiWindowFlags_NoTitleBar |

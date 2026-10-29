@@ -82,6 +82,19 @@ int StartupStatus();
 int StartupStageValue();
 std::string StartupMessage();
 
+// Re-runs the public startup check and updates the update information only.
+// The component list of the signed-in session is NOT touched, so this is safe
+// to call after sign-in (for example from the About page's update button).
+void StartUpdateCheck();
+
+// ---------------------------------------------------------------- refresh ----
+
+// Re-runs the full bootstrap with the stored session and replaces the
+// component list with the signed-in answer. Only while a session exists.
+void StartComponentRefresh();
+int RefreshStatus();
+std::string RefreshMessage();
+
 // Direct executable URL and SHA-256 sent by the server when this build is
 // rejected. ReleaseUrl is only a fallback page. Empty when unavailable.
 std::string StartupDownloadUrl();
@@ -142,6 +155,10 @@ int LaunchProgress();    // 0 to 100 while downloading
 std::string LaunchName();
 std::string LaunchMessage();
 void ResetLaunch();      // back to Idle once the UI has shown the result
+
+// Stops a running component download. The worker then reports the cancelled
+// state through LaunchStatus()/LaunchMessage().
+void CancelLaunch();
 
 // Reports a client-side validation failure without touching the network.
 void ReportLocalError(const std::string& message);
