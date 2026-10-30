@@ -598,14 +598,6 @@ std::string diagnostics_text()
 	return value;
 }
 
-void open_component(int index)
-{
-	shared.selected = index;
-	shared.selected_local = -1;
-	shared.search[0] = '\0';
-	state.page = PageApplications;
-}
-
 // --------------------------------------------------------- server status ----
 
 const char* server_state_text()

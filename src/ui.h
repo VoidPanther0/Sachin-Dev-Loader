@@ -15,7 +15,7 @@ namespace ui {
 
 // ------------------------------------------------------------------ theme ----
 
-// Base palette. Mutable so the Theme page can switch between the dark and the
+// Base palette. Mutable so the palette can switch between the dark and the
 // light theme at runtime; ui::apply_theme() writes these.
 inline ImVec4 kBg(0.043f, 0.047f, 0.059f, 1.0f);
 inline ImVec4 kTitleBg(0.055f, 0.059f, 0.071f, 1.0f);
@@ -41,7 +41,7 @@ ImU32 color_u32(const ImVec4& color);
 
 struct State
 {
-	int page = 0;            // dash::Page: Home, Applications, Downloads, DLL Tools, ...
+	int page = 0;            // dash::Page: the page shown by the dashboard shell
 	float accent[3] = { 0.42f, 0.56f, 1.00f };
 	float fps = 0.0f;
 	bool light = false;      // palette currently applied by ui::apply_theme()
@@ -111,9 +111,8 @@ void apply_accent();
 // One file per screen in src/screen:
 //   loading.cpp        startup check and sign-in progress
 //   login.cpp          login form
-//   dashboard.cpp      window shell: title bar, sidebar, footer
-//   home.cpp, applications.cpp, downloads.cpp, dll_tools.cpp, theme.cpp,
-//   account.cpp, settings.cpp, about.cpp   dashboard pages
+//   dashboard.cpp      window shell: title bar, sidebar, footer, page dispatch
+//   home.cpp           the dashboard page
 
 namespace screen_loading {
 

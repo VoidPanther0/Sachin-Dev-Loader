@@ -2,8 +2,7 @@
 
 A Windows desktop loader built with C++20, Win32, DirectX 11, and Dear ImGui.
 It has a frameless dark window, loading screens, a Supabase login and a
-dashboard with eight pages: Home, Applications, Downloads, DLL Tools, Theme,
-Account, Settings and About.
+dashboard with a Home page.
 
 Supabase is used only for authentication, build checks, components and the
 update version; no database key is embedded in the executable.
@@ -12,8 +11,8 @@ update version; no database key is embedded in the executable.
 
 - Frameless window with a custom title bar and rounded corners
 - One source file per screen in `src/screen`: loading, login, dashboard shell
-  and each dashboard page
-- Update offered inside the loader (Downloads page): download, SHA-256 verify,
+  and the dashboard page
+- Update offered inside the loader: download, SHA-256 verify,
   replace the running exe and restart
 - Maintenance mode with a custom message, set from the database
 - Custom dark theme with a selectable accent color
@@ -177,16 +176,9 @@ src/
     loading.cpp             Startup check and sign-in progress
     login.cpp               Login form
     common/login_common.{h,cpp} Logo, card frame, step list, gradient buttons
-    dashboard.cpp           Shell: title bar, sidebar, footer, page switch
+    dashboard.cpp           Shell: title bar, sidebar, footer, page dispatch
     common/dashboard_common.{h,cpp}Theme, icons, widgets and shared state
     home.cpp                Home page
-    applications.cpp        Applications page
-    downloads.cpp           Downloads page (loader update and component files)
-    dll_tools.cpp           DLL Tools page (read-only PE check)
-    theme.cpp               Theme page
-    account.cpp             Account page
-    settings.cpp            Settings page
-    about.cpp               About page
   auth/
     supabase_auth.cpp       Supabase login, session refresh, HWID, build check, update
     supabase_auth.h         Auth and update API used by the screens
@@ -216,7 +208,7 @@ Each screen lives in its own file under `src/screen`.
 | Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.h` |
 | Login form          | `src/screen/login.cpp`                             |
 | Loading screens     | `src/screen/loading.cpp`                           |
-| Dashboard pages     | `src/screen/<page>.cpp`, listed in `dash::Page` in `src/screen/common/dashboard_common.h` |
+| Dashboard page      | `src/screen/home.cpp`, listed in `dash::Page` in `src/screen/common/dashboard_common.h` |
 | Sidebar and footer  | `draw_sidebar()`, `draw_footer()` in `src/screen/dashboard.cpp` |
 | Shared page state   | `ui::State` in `src/ui.h`, `dash::Shared` in `src/screen/common/dashboard_common.h` |
 | Fonts and sizes     | `ui::load_fonts()` in `src/ui.cpp`                 |

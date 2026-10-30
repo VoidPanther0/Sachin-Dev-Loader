@@ -54,10 +54,6 @@ void draw_hero()
 
 	text_wrapped(font.body, 14.0f, ImVec2(hero.min.x + 32.0f, hero.min.y + 88.0f), kMuted,
 		"Your loader is ready. Launch your apps and games from one place.", 390.0f);
-
-	if (primary_button("##hero_open", rect(hero.min.x + 32.0f, hero.min.y + 140.0f,
-		hero.min.x + 232.0f, hero.min.y + 184.0f), "Open applications"))
-		state.page = PageApplications;
 }
 
 // ------------------------------------------------------------------- stats ---
@@ -133,8 +129,13 @@ void draw_component_row(const Rect& row, const sdauth::Component& component, boo
 	text(font.caption, 11.0f, ImVec2(row.min.x + 64.0f, row.min.y + 33.0f), kMuted, version);
 	draw->PopClipRect();
 
-	const ImVec4 status = status_color(component.status);
-	const std::string label = component_launchable(component) ? std::string("Ready") : status_label(component.status);
+	// A launch in progress shows up on the row it belongs to.
+	const bool launching = sdauth::LaunchStatus() == sdauth::StatusWorking
+		&& sdauth::LaunchName() == component.name;
+
+	const ImVec4 status = launching ? accent_color() : status_color(component.status);
+	const std::string label = launching ? std::string("Starting...")
+		: (component_launchable(component) ? std::string("Ready") : status_label(component.status));
 	const float label_w = text_width(font.body, 12.0f, label.c_str());
 	const float status_x = row.max.x - 76.0f - label_w;
 	draw->AddCircleFilled(ImVec2(status_x - 12.0f, row.min.y + height(row) * 0.5f), 3.5f, color_u32(status), 12);
@@ -145,16 +146,98 @@ void draw_component_row(const Rect& row, const sdauth::Component& component, boo
 		color_u32(hovered ? accent_color() : kNavText));
 }
 
+// -------------------------------------------------------------- launching ---
+//
+// The quick access list is the only place a component can start in this build,
+// so a click launches it directly (with the confirmation option honored).
+
+int g_launch_pending = -1;   // row waiting for the confirmation popup, or -1
+bool g_launch_popup_open = false;
+
+void launch_component(const sdauth::Component& component)
+{
+	if (!sdauth::LaunchComponent(component.name))
+		toast_error("The component cannot start right now. Try Refresh.");
+}
+
+void component_clicked(int index, const sdauth::Component& component)
+{
+	if (!component_launchable(component))
+	{
+		toast_error("This component cannot start right now");
+		return;
+	}
+
+	if (!shared.confirm_launch)
+	{
+		launch_component(component);
+		return;
+	}
+
+	g_launch_pending = index;
+}
+
+// Confirmation popup opened by component_clicked(). Drawn from the page scope
+// so the popup id matches on every frame.
+void draw_launch_confirm()
+{
+	if (g_launch_pending < 0)
+	{
+		g_launch_popup_open = false;
+		return;
+	}
+
+	const std::vector<sdauth::Component> components = sdauth::Components();
+	if (g_launch_pending >= static_cast<int>(components.size()))
+	{
+		g_launch_pending = -1;
+		g_launch_popup_open = false;
+		return;
+	}
+
+	const sdauth::Component& component = components[static_cast<std::size_t>(g_launch_pending)];
+	const std::string title = "Launch " + component.name + "?";
+	const std::string body = "The file is downloaded once, checked against its SHA-256 checksum and then started.";
+
+	if (!g_launch_popup_open)
+	{
+		ImGui::OpenPopup("##confirm_component");
+		g_launch_popup_open = true;
+	}
+
+	if (confirm_modal("##confirm_component", title.c_str(), body.c_str(), "Launch"))
+	{
+		launch_component(component);
+		g_launch_pending = -1;
+		g_launch_popup_open = false;
+	}
+	else if (!ImGui::IsPopupOpen("##confirm_component"))
+	{
+		g_launch_pending = -1;   // cancelled
+		g_launch_popup_open = false;
+	}
+}
+
+// Toasts the result of a launch once it finishes.
+void tick_launch_toast()
+{
+	static int seen = sdauth::StatusIdle;
+	const int status = sdauth::LaunchStatus();
+	if (status == seen)
+		return;
+
+	seen = status;
+	if (status == sdauth::StatusOk)
+		toast(sdauth::LaunchMessage().c_str());
+	else if (status == sdauth::StatusError)
+		toast_error(sdauth::LaunchMessage().c_str());
+}
+
 void draw_quick_access()
 {
 	const Rect card = rect(kContentLeft, 408.0f, 800.0f, kContentBottom);
 	box(card, kCard, 14.0f, card_border());
 	section_header(card, "Quick access", icon_bolt);
-
-	if (text_link("##quick_all", "View all", ImVec2(card.max.x - 44.0f - text_width(font.semibold, 12.0f, "View all"),
-		card.min.y + 27.0f)))
-		state.page = PageApplications;
-	icon_arrow(ImVec2(card.max.x - 26.0f, card.min.y + 34.0f), color_u32(accent_color()));
 
 	divider(card.min.x + 24.0f, card.max.x - 24.0f, card.min.y + 64.0f);
 
@@ -202,7 +285,7 @@ void draw_quick_access()
 
 		draw_component_row(row, components[static_cast<std::size_t>(i)], hovered);
 		if (clicked)
-			open_component(i);
+			component_clicked(i, components[static_cast<std::size_t>(i)]);
 	}
 
 	ImGui::SetCursorScreenPos(origin);
@@ -242,10 +325,6 @@ void draw_loader_status()
 	box(card, kCard, 14.0f, card_border());
 	section_header(card, "Loader status", icon_activity);
 
-	if (text_link("##status_about", "About", ImVec2(card.max.x - 30.0f - text_width(font.semibold, 12.0f, "About"),
-		card.min.y + 27.0f)))
-		state.page = PageAbout;
-
 	divider(card.min.x + 24.0f, card.max.x - 24.0f, card.min.y + 64.0f);
 
 	const Rect panel = rect(card.min.x + 20.0f, card.min.y + 80.0f, card.max.x - 20.0f, 636.0f);
@@ -263,10 +342,14 @@ void draw_loader_status()
 
 void DrawHome()
 {
+	tick_launch_toast();
+
 	draw_hero();
 	draw_stats();
 	draw_quick_access();
 	draw_loader_status();
+
+	draw_launch_confirm();
 }
 
 } // namespace dash

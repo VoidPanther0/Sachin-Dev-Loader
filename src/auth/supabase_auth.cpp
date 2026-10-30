@@ -75,7 +75,7 @@ std::atomic<int> g_update_progress(0);
 std::string g_update_message;
 // Path of the swapped loader, started again by RestartLoader().
 std::wstring g_update_target;
-// Manual component refresh from the dashboard (Applications page).
+// Manual component refresh from the dashboard.
 std::atomic<int> g_refresh_status(static_cast<int>(sdauth::StatusIdle));
 std::atomic<bool> g_refresh_busy(false);
 std::string g_refresh_message;
@@ -578,8 +578,8 @@ bool HttpDownload(const std::wstring& url, std::vector<unsigned char>& bytes, st
 		}
 
 		for (;;) {
-			// The launch path (progress != nullptr) can be cancelled from the
-			// Downloads page while the body is still arriving.
+			// The launch path (progress != nullptr) can be cancelled while the
+			// body is still arriving.
 			if (progress != nullptr && g_launch_cancel.load()) {
 				error = "Download cancelled";
 				WinHttpCloseHandle(request);
@@ -1113,7 +1113,7 @@ void SetRefresh(int status, const std::string& message) {
 	g_refresh_status.store(status);
 }
 
-// Update check started from the About page. Re-runs the public startup request
+// Update check. Re-runs the public startup request
 // but only refreshes the update information; the signed-in component list is
 // never replaced with the non-launchable public list.
 void RunUpdateCheck() {

@@ -1,7 +1,6 @@
 #include "common/dashboard_common.h"
 #include "common/login_common.h"
 
-#include <cctype>
 #include <cstdio>
 #include <string>
 
@@ -26,10 +25,6 @@ struct NavEntry
 
 const NavEntry kNav[] = {
 	{ "Home",          "Your loader at a glance.",                          PageHome,         icon_home },
-	{ "Product",       "Product details and features.",                     PageProduct,      icon_product },
-	{ "Game Updates",  "Game updates and patches.",                         PageGameUpdates,  icon_updates },
-	{ "Socials",       "Connect with us on social media.",                  PageSocials,      icon_socials },
-	{ "Settings",      "Interface, performance and launch options.",        PageSettings,     icon_settings },
 };
 
 constexpr int kNavCount = static_cast<int>(sizeof(kNav) / sizeof(kNav[0]));
@@ -124,16 +119,6 @@ bool nav_item(const NavEntry& entry, float y, float hover)
 	const ImVec4 label_color = active ? kWhite : fade(kNavText, 0.55f + 0.45f * hover);
 	text(font.semibold, 14.0f, ImVec2(r.min.x + 48.0f, r.min.y + 12.0f), label_color, entry.label);
 	return clicked;
-}
-
-// Small badge at the right edge of a nav item: a count.
-void nav_badge(float y, const char* value)
-{
-	const float w = text_width(font.caption, 10.0f, value) + 14.0f;
-	const Rect b = rect(kSidebarWidth - 30.0f - w, y + 10.0f, kSidebarWidth - 30.0f, y + 30.0f);
-	box(b, fade(accent_color(), 0.18f), 10.0f);
-	const ImVec4 label_color = state.light ? dim(accent_color(), 0.25f) : lift(accent_color(), 0.20f);
-	text_center(font.caption, 10.0f, b, label_color, value);
 }
 
 void draw_sidebar()
@@ -240,16 +225,13 @@ void Render()
 	draw_sidebar();
 	draw_title_bar();
 
+	// Page dispatch. Only Home exists in this build; add a case here when a
+	// new page gets its own file and its own dash::Page value.
 	switch (state.page)
 	{
-	case PageApplications: DrawApplications(); break;
-	case PageDownloads: DrawDownloads(); break;
-	case PageDllTools: DrawDllTools(); break;
-	case PageTheme: DrawTheme(); break;
-	case PageAccount: DrawAccount(); break;
-	case PageSettings: DrawSettings(); break;
-	case PageAbout: DrawAbout(); break;
-	default: DrawHome(); break;
+	default:
+		DrawHome();
+		break;
 	}
 
 	draw_footer();

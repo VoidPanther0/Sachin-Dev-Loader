@@ -8,15 +8,15 @@
 
 // Shared pieces of the dashboard: theme colors, layout, icons, small widgets
 // and the per-session state. dashboard.cpp draws the window shell; every page
-// has its own file (home.cpp, applications.cpp, downloads.cpp, dll_tools.cpp,
-// theme.cpp, account.cpp, settings.cpp, about.cpp).
+// has its own file (home.cpp).
 
 namespace dash {
 
 // ------------------------------------------------------------------ theme ----
 //
-// Mutable so the Theme page can switch palettes at runtime. Never read these
-// during static initialization; call apply_theme() first (LoadPreferences does).
+// Mutable so the palette can switch between dark and light at runtime. Never
+// read these during static initialization; call apply_theme() first
+// (LoadPreferences does).
 
 inline ImVec4 kHomeBg(0.020f, 0.024f, 0.043f, 1.0f);
 inline ImVec4 kSidebar(0.031f, 0.039f, 0.063f, 1.0f);
@@ -41,20 +41,11 @@ constexpr float kContentRight = 1132.0f;
 constexpr float kContentTop = 88.0f;
 constexpr float kContentBottom = 652.0f;
 
-// Sidebar order. ui::state.page holds one of these.
+// Sidebar order. ui::state.page holds one of these. Add a value here when a
+// page gets its own file, and a case in dashboard.cpp to draw it.
 enum Page
 {
 	PageHome = 0,
-	PageApplications,
-	PageDownloads,
-	PageDllTools,
-	PageTheme,
-	PageAccount,
-	PageSettings,
-	PageAbout,
-	PageProduct,
-	PageGameUpdates,
-	PageSocials,
 	PageCount,
 };
 
@@ -161,9 +152,6 @@ std::string session_time();
 // Plain text a user can paste to support. No password, token or full device ID.
 std::string diagnostics_text();
 
-// Opens the Applications page on one component.
-void open_component(int index);
-
 // --------------------------------------------------------- server status ----
 
 // "Connected" only while this session really holds a server answer; otherwise
@@ -260,16 +248,6 @@ void progress_bar(const ui::Rect& r, float fraction, const ImVec4& color);
 // ------------------------------------------------------------------ pages ----
 
 void DrawHome();
-void DrawApplications();
-void DrawDownloads();
-void DrawDllTools();
-void DrawTheme();
-void DrawAccount();
-void DrawSettings();
-void DrawAbout();
-void DrawProduct();
-void DrawGameUpdates();
-void DrawSocials();
 
 // Called once per frame by the shell; ends a finished launch message.
 void tick_launch();

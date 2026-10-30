@@ -84,7 +84,7 @@ std::string StartupMessage();
 
 // Re-runs the public startup check and updates the update information only.
 // The component list of the signed-in session is NOT touched, so this is safe
-// to call after sign-in (for example from the About page's update button).
+// to call after sign-in (for example from an update button).
 void StartUpdateCheck();
 
 // ---------------------------------------------------------------- refresh ----
