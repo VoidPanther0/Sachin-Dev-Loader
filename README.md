@@ -2,7 +2,7 @@
 
 A Windows desktop loader built with C++20, Win32, DirectX 11, and Dear ImGui.
 It has a frameless dark window, loading screens, a Supabase login and a
-dashboard with a Home page.
+dashboard with a sidebar (Home, Product, Game Updates, Socials, Settings).
 
 Supabase is used only for authentication, build checks, components and the
 update version; no database key is embedded in the executable.
@@ -11,7 +11,7 @@ update version; no database key is embedded in the executable.
 
 - Frameless window with a custom title bar and rounded corners
 - One source file per screen in `src/screen`: loading, login, dashboard shell
-  and the dashboard page
+  and the Home page (the other sidebar entries show a placeholder)
 - Update offered inside the loader: download, SHA-256 verify,
   replace the running exe and restart
 - Maintenance mode with a custom message, set from the database
@@ -208,7 +208,8 @@ Each screen lives in its own file under `src/screen`.
 | Theme colors        | `kBg`, `kPanel`, `kText`, and related constants in `src/ui.h` |
 | Login form          | `src/screen/login.cpp`                             |
 | Loading screens     | `src/screen/loading.cpp`                           |
-| Dashboard page      | `src/screen/home.cpp`, listed in `dash::Page` in `src/screen/common/dashboard_common.h` |
+| Home page           | `src/screen/home.cpp`, listed in `dash::Page` in `src/screen/common/dashboard_common.h` |
+| Sidebar navigation  | `kNav[]` and `draw_sidebar()` in `src/screen/dashboard.cpp`       |
 | Sidebar and footer  | `draw_sidebar()`, `draw_footer()` in `src/screen/dashboard.cpp` |
 | Shared page state   | `ui::State` in `src/ui.h`, `dash::Shared` in `src/screen/common/dashboard_common.h` |
 | Fonts and sizes     | `ui::load_fonts()` in `src/ui.cpp`                 |

@@ -6,7 +6,8 @@
 
 // Window shell shown after sign-in: sidebar with the logo and navigation, the
 // title bar with the page title, session pill and window buttons, and the
-// current page. Every page lives in its own file; see dashboard_common.h.
+// current page. Only Home has its own file (home.cpp); the other navigation
+// entries draw a placeholder until they get one.
 
 namespace screen_dashboard {
 
@@ -25,6 +26,10 @@ struct NavEntry
 
 const NavEntry kNav[] = {
 	{ "Home",          "Your loader at a glance.",                          PageHome,         icon_home },
+	{ "Product",       "Product details and features.",                     PageProduct,      icon_product },
+	{ "Game Updates",  "Game updates and patches.",                         PageGameUpdates,  icon_updates },
+	{ "Socials",       "Connect with us on social media.",                  PageSocials,      icon_socials },
+	{ "Settings",      "Interface, performance and launch options.",        PageSettings,     icon_settings },
 };
 
 constexpr int kNavCount = static_cast<int>(sizeof(kNav) / sizeof(kNav[0]));
@@ -67,24 +72,24 @@ void draw_title_bar()
 	box(accent_bar, accent_color(), 2.0f);
 	text(font.semibold, 19.0f, ImVec2(272.0f, 12.0f), kText, entry.label);
 
-	draw->PushClipRect(ImVec2(272.0f, 36.0f), ImVec2(900.0f, 54.0f), true);
+	draw->PushClipRect(ImVec2(272.0f, 36.0f), ImVec2(528.0f, 54.0f), true);
 	text(font.caption, 11.0f, ImVec2(272.0f, 38.0f), kMuted, entry.subtitle);
 	draw->PopClipRect();
 
-	// Drag strip: everything left of the window buttons.
+	// Drag strip: everything left of the session pill.
 	ImGui::SetCursorScreenPos(ImVec2(kSidebarWidth, 0.0f));
-	ImGui::InvisibleButton("##title_drag", ImVec2(820.0f, kTitleHeight));
+	ImGui::InvisibleButton("##title_drag", ImVec2(440.0f, kTitleHeight));
 	if (ImGui::IsItemClicked())
 		StartWindowDrag();
 
 	// Session state is reported from the real session, never assumed.
 	const bool live = sdauth::HasSession();
-	pill(rect(924.0f, 20.0f, 1044.0f, 44.0f), live ? "SESSION ACTIVE" : "SESSION ENDED", live ? kGreen : kRed);
+	pill(rect(544.0f, 20.0f, 664.0f, 44.0f), live ? "SESSION ACTIVE" : "SESSION ENDED", live ? kGreen : kRed);
 
-	if (window_button("##minimize", rect(1052.0f, 16.0f, 1084.0f, 48.0f), false))
+	if (window_button("##minimize", rect(672.0f, 16.0f, 704.0f, 48.0f), false))
 		ShowWindow(g_hwnd, SW_MINIMIZE);
 
-	if (window_button("##close", rect(1116.0f, 16.0f, 1148.0f, 48.0f), true))
+	if (window_button("##close", rect(736.0f, 16.0f, 768.0f, 48.0f), true))
 		PostQuitMessage(0);
 }
 
@@ -169,14 +174,18 @@ void draw_sidebar()
 void draw_footer()
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddLine(ImVec2(kContentLeft, 672.0f), ImVec2(kContentRight, 672.0f), color_u32(kLine), 1.0f);
+	const float line_y = kContentBottom + 20.0f;
+	const float text_y = app::kHeight - 36.0f;
+
+	draw->AddLine(ImVec2(kContentLeft, line_y), ImVec2(kContentRight, line_y), color_u32(kLine), 1.0f);
 
 	const ImVec4 state_color = server_state_color();
-	draw->AddCircleFilled(ImVec2(kContentLeft + 4.0f, 690.0f), 3.0f, color_u32(state_color));
+	draw->AddCircleFilled(ImVec2(kContentLeft + 4.0f, text_y + 6.0f), 3.0f, color_u32(state_color));
 
-	char left[128];
-	std::snprintf(left, sizeof(left), "Sachin Loader v%s  |  %s", app::kVersion, server_state_text());
-	text(font.caption, 10.0f, ImVec2(kContentLeft + 14.0f, 684.0f), kDim, left);
+	char left[160];
+	std::snprintf(left, sizeof(left), "Sachin Loader v%s  |  %s  |  session %s", app::kVersion,
+		server_state_text(), session_time().c_str());
+	text(font.caption, 10.0f, ImVec2(kContentLeft + 14.0f, text_y), kDim, left);
 
 	if (!shared.show_fps)
 		return;
@@ -184,7 +193,20 @@ void draw_footer()
 	char right[64];
 	std::snprintf(right, sizeof(right), "FPS %d", static_cast<int>(state.fps + 0.5f));
 	const float right_width = text_width(font.caption, 10.0f, right);
-	text(font.caption, 10.0f, ImVec2(kContentRight - right_width, 684.0f), kDim, right);
+	text(font.caption, 10.0f, ImVec2(kContentRight - right_width, text_y), kDim, right);
+}
+
+// Pages that do not have their own file yet. They stay in the navigation, so
+// they show a clear placeholder instead of pretending to be the Home page.
+void draw_placeholder(const char* title, IconFn icon)
+{
+	const Rect card = rect(kContentLeft, kContentTop, kContentRight, kContentBottom);
+	box(card, kCard, 14.0f, card_border());
+	section_header(card, title, icon);
+	divider(card.min.x + 24.0f, card.max.x - 24.0f, card.min.y + 64.0f);
+
+	const Rect area = rect(card.min.x + 20.0f, card.min.y + 80.0f, card.max.x - 20.0f, card.max.y - 16.0f);
+	draw_empty_state(area, "Coming soon", "This page is not part of this build yet.");
 }
 
 } // namespace
@@ -225,13 +247,15 @@ void Render()
 	draw_sidebar();
 	draw_title_bar();
 
-	// Page dispatch. Only Home exists in this build; add a case here when a
-	// new page gets its own file and its own dash::Page value.
+	// Page dispatch. Home has its own file; the rest of the navigation shows
+	// the placeholder above until a page gets its own file and dash::Page value.
 	switch (state.page)
 	{
-	default:
-		DrawHome();
-		break;
+	case PageProduct:     draw_placeholder("Product", icon_product); break;
+	case PageGameUpdates: draw_placeholder("Game Updates", icon_updates); break;
+	case PageSocials:     draw_placeholder("Socials", icon_socials); break;
+	case PageSettings:    draw_placeholder("Settings", icon_settings); break;
+	default:              DrawHome(); break;
 	}
 
 	draw_footer();

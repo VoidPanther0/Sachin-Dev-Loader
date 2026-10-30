@@ -5,8 +5,8 @@
 #include <string>
 #include <vector>
 
-// Home: welcome banner, key numbers, quick access to released components and
-// the loader status, following the dashboard reference design.
+// Home: welcome banner, key numbers and quick access to released components,
+// following the dashboard reference design.
 
 namespace dash {
 
@@ -18,7 +18,7 @@ namespace {
 
 void draw_hero()
 {
-	const Rect hero = rect(kContentLeft, kContentTop, kContentRight, 288.0f);
+	const Rect hero = rect(kContentLeft, kContentTop, kContentRight, 200.0f);
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 
 	gradient_box(hero, ImVec4(0.055f, 0.085f, 0.205f, 1.0f), ImVec4(0.150f, 0.075f, 0.285f, 1.0f), 16.0f);
@@ -27,7 +27,7 @@ void draw_hero()
 
 	// Decorative artwork: the logo plus a few cheap geometric strokes. No blur,
 	// no per-frame allocation; switched off with the reduced-effects option.
-	const ImVec2 art(hero.max.x - 140.0f, hero.min.y + 100.0f);
+	const ImVec2 art(hero.max.x - 96.0f, hero.min.y + 50.0f);
 	if (!shared.reduced_effects)
 	{
 		draw->AddCircleFilled(ImVec2(art.x + 30.0f, art.y - 10.0f), 150.0f,
@@ -38,7 +38,7 @@ void draw_hero()
 			color_u32(fade(kBlue, 0.16f)), 22.0f);
 	}
 
-	login_ui::DrawLogo(art, 176.0f);
+	login_ui::DrawLogo(art, 92.0f);
 	draw->PopClipRect();
 	draw->AddRect(hero.min, hero.max, color_u32(kBorder), 16.0f, 0, 1.0f);
 
@@ -46,14 +46,14 @@ void draw_hero()
 	const sdauth::Session session = sdauth::GetSession();
 	const char* name = session.username.empty() ? "friend" : session.username.c_str();
 
-	const ImVec2 greeting_pos(hero.min.x + 32.0f, hero.min.y + 36.0f);
+	const ImVec2 greeting_pos(hero.min.x + 32.0f, hero.min.y + 24.0f);
 	const float hi_width = text_width(font.title, 30.0f, "Hi, ");
 	text(font.title, 30.0f, greeting_pos, kText, "Hi, ");
 	gradient_text(font.title, 30.0f, ImVec2(greeting_pos.x + hi_width, greeting_pos.y), name,
 		lift(accent_color(), 0.10f), kPurple);
 
-	text_wrapped(font.body, 14.0f, ImVec2(hero.min.x + 32.0f, hero.min.y + 88.0f), kMuted,
-		"Your loader is ready. Launch your apps and games from one place.", 390.0f);
+	text_wrapped(font.body, 14.0f, ImVec2(hero.min.x + 32.0f, hero.min.y + 66.0f), kMuted,
+		"Your loader is ready. Launch your apps and games from one place.", 320.0f);
 }
 
 // ------------------------------------------------------------------- stats ---
@@ -68,8 +68,6 @@ void draw_stats()
 
 	char build[32];
 	std::snprintf(build, sizeof(build), "v%s", app::kVersion);
-
-	const std::string uptime = session_time();
 
 	// Access comes from the server: "Lifetime" only when the server sends no
 	// expiry at all; otherwise the days that are really left.
@@ -97,10 +95,11 @@ void draw_stats()
 			access_color = kOrange;
 	}
 
-	constexpr float gap = 16.0f;
-	const float w = (kContentRight - kContentLeft - gap * 3.0f) / 4.0f;
-	const float y1 = 304.0f;
-	const float y2 = 392.0f;
+	// Three cards fit the content area; the session time moved to the footer.
+	constexpr float gap = 12.0f;
+	const float w = (kContentRight - kContentLeft - gap * 2.0f) / 3.0f;
+	const float y1 = 216.0f;
+	const float y2 = 288.0f;
 	float x = kContentLeft;
 
 	stat_card(rect(x, y1, x + w, y2), "COMPONENTS", count, "Released for you", accent_color(), icon_components);
@@ -108,8 +107,6 @@ void draw_stats()
 	stat_card(rect(x, y1, x + w, y2), "BUILD", build, "Installed", kGreen, icon_cube);
 	x += w + gap;
 	stat_card(rect(x, y1, x + w, y2), "ACCESS", access_value, access_hint, access_color, icon_crown);
-	x += w + gap;
-	stat_card(rect(x, y1, x + w, y2), "SESSION", uptime.c_str(), "Since sign in", kPurple, icon_clock);
 }
 
 // ------------------------------------------------------------ quick access ---
@@ -118,15 +115,15 @@ void draw_component_row(const Rect& row, const sdauth::Component& component, boo
 {
 	box(row, hovered ? lift(kCardSoft, 0.02f) : kCardSoft, 10.0f, hovered ? &kLineBright : &kLine);
 
-	letter_badge(rect(row.min.x + 12.0f, row.min.y + 12.0f, row.min.x + 52.0f, row.max.y - 12.0f),
-		component.name, 17.0f);
+	letter_badge(rect(row.min.x + 12.0f, row.min.y + 8.0f, row.min.x + 48.0f, row.max.y - 8.0f),
+		component.name, 15.0f);
 
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->PushClipRect(ImVec2(row.min.x + 64.0f, row.min.y), ImVec2(row.max.x - 150.0f, row.max.y), true);
-	text(font.semibold, 14.0f, ImVec2(row.min.x + 64.0f, row.min.y + 13.0f), kText, component.name.c_str());
+	draw->PushClipRect(ImVec2(row.min.x + 60.0f, row.min.y), ImVec2(row.max.x - 150.0f, row.max.y), true);
+	text(font.semibold, 13.0f, ImVec2(row.min.x + 60.0f, row.min.y + 6.0f), kText, component.name.c_str());
 	char version[48];
 	std::snprintf(version, sizeof(version), "v%s", component.version.c_str());
-	text(font.caption, 11.0f, ImVec2(row.min.x + 64.0f, row.min.y + 33.0f), kMuted, version);
+	text(font.caption, 10.0f, ImVec2(row.min.x + 60.0f, row.min.y + 23.0f), kMuted, version);
 	draw->PopClipRect();
 
 	// A launch in progress shows up on the row it belongs to.
@@ -235,7 +232,7 @@ void tick_launch_toast()
 
 void draw_quick_access()
 {
-	const Rect card = rect(kContentLeft, 408.0f, 800.0f, kContentBottom);
+	const Rect card = rect(kContentLeft, 304.0f, kContentRight, kContentBottom);
 	box(card, kCard, 14.0f, card_border());
 	section_header(card, "Quick access", icon_bolt);
 
@@ -263,7 +260,6 @@ void draw_quick_access()
 
 	constexpr float gap = 12.0f;
 	const float row_h = (height(area) - gap) * 0.5f;
-	const int shown = components.size() < 2 ? static_cast<int>(components.size()) : 2;
 
 	ImGui::SetCursorScreenPos(area.min);
 	ImGui::BeginChild("##quick_rows", ImVec2(width(area), height(area)), 0, ImGuiWindowFlags_NoBackground);
@@ -291,51 +287,6 @@ void draw_quick_access()
 	ImGui::SetCursorScreenPos(origin);
 	ImGui::Dummy(ImVec2(1.0f, static_cast<float>(count) * (row_h + gap) - gap));
 	ImGui::EndChild();
-
-	(void)shown;
-}
-
-// ----------------------------------------------------------- loader status ---
-
-void status_line(const Rect& panel, float y, IconFn icon, const char* label, const char* value, const ImVec4& color,
-	bool with_dot)
-{
-	ImDrawList* draw = ImGui::GetWindowDrawList();
-	icon(ImVec2(panel.min.x + 26.0f, y + 16.0f), color_u32(kNavText));
-
-	text(font.caption, 11.0f, ImVec2(panel.min.x + 48.0f, y + 9.0f), kMuted, label);
-
-	const float value_w = text_width(font.body, 13.0f, value);
-	const float value_x = panel.max.x - 20.0f - value_w;
-	draw->PushClipRect(ImVec2(panel.min.x + 130.0f, y), ImVec2(panel.max.x - 14.0f, y + 34.0f), true);
-	if (with_dot)
-	{
-		draw->AddCircleFilled(ImVec2(value_x - 12.0f, y + 16.0f), 3.5f, color_u32(color), 12);
-	}
-	text(font.body, 13.0f, ImVec2(value_x, y + 8.0f),
-		with_dot ? (state.light ? dim(color, 0.25f) : lift(color, 0.10f)) : kText, value);
-	draw->PopClipRect();
-
-	divider(panel.min.x + 48.0f, panel.max.x - 20.0f, y + 34.0f);
-}
-
-void draw_loader_status()
-{
-	const Rect card = rect(816.0f, 408.0f, kContentRight, kContentBottom);
-	box(card, kCard, 14.0f, card_border());
-	section_header(card, "Loader status", icon_activity);
-
-	divider(card.min.x + 24.0f, card.max.x - 24.0f, card.min.y + 64.0f);
-
-	const Rect panel = rect(card.min.x + 20.0f, card.min.y + 80.0f, card.max.x - 20.0f, 636.0f);
-	box(panel, kCardSoft, 12.0f, &kLine);
-
-	const std::string components = std::to_string(sdauth::Components().size());
-	const char* server = server_state_text();
-
-	status_line(panel, panel.min.y + 8.0f, icon_server, "API", server, server_state_color(), true);
-	status_line(panel, panel.min.y + 52.0f, icon_cube, "Version", app::kVersion, kText, false);
-	status_line(panel, panel.min.y + 96.0f, icon_components, "Components", components.c_str(), kText, false);
 }
 
 } // namespace
@@ -347,7 +298,6 @@ void DrawHome()
 	draw_hero();
 	draw_stats();
 	draw_quick_access();
-	draw_loader_status();
 
 	draw_launch_confirm();
 }

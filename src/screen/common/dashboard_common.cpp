@@ -1026,7 +1026,7 @@ void draw_toasts()
 		return;
 
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	float y = 662.0f;
+	float y = app::kHeight - 58.0f;
 
 	for (int i = static_cast<int>(g_toasts.size()) - 1; i >= 0; --i)
 	{
@@ -1213,22 +1213,22 @@ void stat_card(const Rect& r, const char* label, const char* value, const char* 
 {
 	box(r, kCard, 14.0f, card_border());
 
-	const Rect tile = rect(r.min.x + 16.0f, r.min.y + 22.0f, r.min.x + 60.0f, r.min.y + 66.0f);
+	const Rect tile = rect(r.min.x + 14.0f, r.min.y + 14.0f, r.min.x + 50.0f, r.min.y + 50.0f);
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	draw->AddRectFilled(tile.min, tile.max, color_u32(fade(color, 0.14f)), 12.0f);
 	draw->AddRect(tile.min, tile.max, color_u32(fade(color, 0.32f)), 12.0f, 0, 1.0f);
 	if (icon != nullptr)
 		icon(center(tile), color_u32(lift(color, 0.10f)));
 
-	// Keep long values inside the card.
-	draw->PushClipRect(ImVec2(r.min.x + 72.0f, r.min.y), ImVec2(r.max.x - 34.0f, r.max.y), true);
-	text(font.caption, 11.0f, ImVec2(r.min.x + 72.0f, r.min.y + 22.0f), kMuted, label);
-	text(font.semibold, 20.0f, ImVec2(r.min.x + 72.0f, r.min.y + 40.0f), kText, value);
+	// Keep long values inside the card and clear of the arrow.
+	draw->PushClipRect(ImVec2(r.min.x + 58.0f, r.min.y), ImVec2(r.max.x - 28.0f, r.max.y), true);
+	text(font.caption, 10.0f, ImVec2(r.min.x + 58.0f, r.min.y + 14.0f), kMuted, label);
+	text(font.semibold, 17.0f, ImVec2(r.min.x + 58.0f, r.min.y + 30.0f), kText, value);
 	draw->PopClipRect();
 
-	text(font.caption, 11.0f, ImVec2(r.min.x + 16.0f, r.min.y + 70.0f), kDim, hint);
+	text(font.caption, 10.0f, ImVec2(r.min.x + 14.0f, r.min.y + 56.0f), kDim, hint);
 
-	icon_arrow(ImVec2(r.max.x - 22.0f, r.min.y + 34.0f), color_u32(fade(accent_color(), 0.85f)));
+	icon_arrow(ImVec2(r.max.x - 16.0f, r.min.y + 32.0f), color_u32(fade(accent_color(), 0.85f)));
 }
 
 void draw_search_box(const Rect& r, const char* hint)

@@ -7,8 +7,9 @@
 #include <vector>
 
 // Shared pieces of the dashboard: theme colors, layout, icons, small widgets
-// and the per-session state. dashboard.cpp draws the window shell; every page
-// has its own file (home.cpp).
+// and the per-session state. dashboard.cpp draws the window shell, the sidebar
+// navigation and the pages without their own file; home.cpp is the only page
+// with its own file.
 
 namespace dash {
 
@@ -32,20 +33,24 @@ inline const ImVec4 kOrange(1.00f, 0.62f, 0.30f, 1.0f);
 // the ImGui style on top of it. Safe to call at any time.
 void apply_theme(bool light);
 
-// True when card borders are drawn (part of the appearance settings).
-
+// Layout of the shell and the content area. The window is app::kWidth x
+// app::kHeight (800x560); everything below fits inside it.
 constexpr float kTitleHeight = 64.0f;
 constexpr float kSidebarWidth = 232.0f;
 constexpr float kContentLeft = 264.0f;
-constexpr float kContentRight = 1132.0f;
+constexpr float kContentRight = 780.0f;
 constexpr float kContentTop = 88.0f;
-constexpr float kContentBottom = 652.0f;
+constexpr float kContentBottom = 492.0f;
 
 // Sidebar order. ui::state.page holds one of these. Add a value here when a
 // page gets its own file, and a case in dashboard.cpp to draw it.
 enum Page
 {
 	PageHome = 0,
+	PageProduct,
+	PageGameUpdates,
+	PageSocials,
+	PageSettings,
 	PageCount,
 };
 
@@ -112,10 +117,10 @@ void icon_search(ImVec2 c, ImU32 color);
 void icon_components(ImVec2 c, ImU32 color); // stat: components
 void icon_cube(ImVec2 c, ImU32 color);       // stat: build
 void icon_crown(ImVec2 c, ImU32 color);      // stat: access
-void icon_clock(ImVec2 c, ImU32 color);      // stat: session
+void icon_clock(ImVec2 c, ImU32 color);      // generic: time
 void icon_bolt(ImVec2 c, ImU32 color);       // section: quick access
-void icon_activity(ImVec2 c, ImU32 color);   // section: loader status
-void icon_server(ImVec2 c, ImU32 color);     // row: API
+void icon_activity(ImVec2 c, ImU32 color);   // generic: pulse
+void icon_server(ImVec2 c, ImU32 color);     // generic: server/api
 void icon_plus(ImVec2 c, ImU32 color);
 void icon_refresh(ImVec2 c, ImU32 color);
 void icon_folder(ImVec2 c, ImU32 color);
