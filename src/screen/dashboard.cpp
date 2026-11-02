@@ -1,6 +1,7 @@
 #include "common/dashboard_common.h"
 #include "common/login_common.h"
 
+#include <cctype>
 #include <cstdio>
 #include <string>
 
@@ -34,7 +35,11 @@ const NavEntry kNav[] = {
 
 constexpr int kNavCount = static_cast<int>(sizeof(kNav) / sizeof(kNav[0]));
 
-constexpr float kNavTop = 126.0f;
+// Nav sits below the full-width header strip (y=0..40). draw_header owns the
+// logo and the wordmark now, so the sidebar is just the icon rail.
+constexpr float kHeaderHeight = 40.0f;
+constexpr float kProfileStripHeight = 64.0f;
+constexpr float kNavTop = 60.0f;
 constexpr float kNavStep = 46.0f;
 constexpr float kNavItemHeight = 40.0f;
 
@@ -56,41 +61,51 @@ void draw_background()
 		color_u32(fade(kBlue, state.light ? 0.03f : 0.04f)), 64);
 }
 
-// The title bar covers the content area only; the sidebar owns the top-left
-// corner with the logo.
-void draw_title_bar()
+// Full-width top strip: brand (logo + wordmark), window drag, session pill,
+// window buttons. The sidebar and the content area start below it.
+void draw_header()
 {
-	const NavEntry& entry = (state.page >= 0 && state.page < kNavCount) ? kNav[state.page] : kNav[0];
-
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddRectFilled(ImVec2(kSidebarWidth, 0.0f), ImVec2(app::kWidth, kTitleHeight), color_u32(kHomeBg));
-	draw->AddLine(ImVec2(kSidebarWidth, kTitleHeight - 1.0f), ImVec2(app::kWidth, kTitleHeight - 1.0f),
+	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(app::kWidth, kHeaderHeight), color_u32(kSidebar));
+	draw->AddLine(ImVec2(0.0f, kHeaderHeight - 1.0f), ImVec2(app::kWidth, kHeaderHeight - 1.0f),
 		color_u32(kLine), 1.0f);
 
-	// Page title with the accent bar from the reference design.
-	const Rect accent_bar = rect(256.0f, 20.0f, 260.0f, 44.0f);
-	box(accent_bar, accent_color(), 2.0f);
-	text(font.semibold, 19.0f, ImVec2(272.0f, 12.0f), kText, entry.label);
+	// Brand: Slogo + wordmark on the left.
+	login_ui::DrawLogo(ImVec2(26.0f, kHeaderHeight * 0.5f), 22.0f);
+	const char* wordmark = "SACHIN LOADER";
+	gradient_text(font.semibold, 15.0f, ImVec2(50.0f, 12.0f), wordmark, lift(kBlue, 0.15f), kPurple);
 
-	draw->PushClipRect(ImVec2(272.0f, 36.0f), ImVec2(528.0f, 54.0f), true);
-	text(font.caption, 11.0f, ImVec2(272.0f, 38.0f), kMuted, entry.subtitle);
-	draw->PopClipRect();
-
-	// Drag strip: everything left of the session pill.
-	ImGui::SetCursorScreenPos(ImVec2(kSidebarWidth, 0.0f));
-	ImGui::InvisibleButton("##title_drag", ImVec2(440.0f, kTitleHeight));
+	// Drag strip across the header except the controls on the right.
+	ImGui::SetCursorScreenPos(ImVec2(0.0f, 0.0f));
+	ImGui::InvisibleButton("##header_drag", ImVec2(app::kWidth - 240.0f, kHeaderHeight));
 	if (ImGui::IsItemClicked())
 		StartWindowDrag();
 
 	// Session state is reported from the real session, never assumed.
 	const bool live = sdauth::HasSession();
-	pill(rect(544.0f, 20.0f, 664.0f, 44.0f), live ? "SESSION ACTIVE" : "SESSION ENDED", live ? kGreen : kRed);
+	pill(rect(app::kWidth - 232.0f, 10.0f, app::kWidth - 112.0f, 30.0f),
+		live ? "SESSION ACTIVE" : "SESSION ENDED", live ? kGreen : kRed);
 
-	if (window_button("##minimize", rect(672.0f, 16.0f, 704.0f, 48.0f), false))
+	if (window_button("##minimize", rect(app::kWidth - 96.0f, 4.0f, app::kWidth - 64.0f, kHeaderHeight - 4.0f), false))
 		ShowWindow(g_hwnd, SW_MINIMIZE);
 
-	if (window_button("##close", rect(736.0f, 16.0f, 768.0f, 48.0f), true))
+	if (window_button("##close", rect(app::kWidth - 48.0f, 4.0f, app::kWidth - 16.0f, kHeaderHeight - 4.0f), true))
 		PostQuitMessage(0);
+}
+
+// Page title inside the content area (sits above the first page card).
+void draw_title_bar()
+{
+	const NavEntry& entry = (state.page >= 0 && state.page < kNavCount) ? kNav[state.page] : kNav[0];
+
+	const Rect accent_bar = rect(kContentLeft - 10.0f, 54.0f, kContentLeft - 6.0f, 78.0f);
+	box(accent_bar, accent_color(), 2.0f);
+	text(font.semibold, 19.0f, ImVec2(kContentLeft, 46.0f), kText, entry.label);
+
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->PushClipRect(ImVec2(kContentLeft, 70.0f), ImVec2(kContentRight, 86.0f), true);
+	text(font.caption, 11.0f, ImVec2(kContentLeft, 72.0f), kMuted, entry.subtitle);
+	draw->PopClipRect();
 }
 
 bool nav_item(const NavEntry& entry, float y, float hover)
@@ -129,23 +144,10 @@ bool nav_item(const NavEntry& entry, float y, float hover)
 void draw_sidebar()
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	draw->AddRectFilled(ImVec2(0.0f, 0.0f), ImVec2(kSidebarWidth, app::kHeight), color_u32(kSidebar));
-	draw->AddLine(ImVec2(kSidebarWidth - 1.0f, 0.0f), ImVec2(kSidebarWidth - 1.0f, app::kHeight),
+	const float sidebar_bottom = app::kHeight - kProfileStripHeight;
+	draw->AddRectFilled(ImVec2(0.0f, kHeaderHeight), ImVec2(kSidebarWidth, sidebar_bottom), color_u32(kSidebar));
+	draw->AddLine(ImVec2(kSidebarWidth - 1.0f, kHeaderHeight), ImVec2(kSidebarWidth - 1.0f, sidebar_bottom),
 		color_u32(kLine), 1.0f);
-
-	// ---------------------------------------------------------------- logo --
-	login_ui::DrawLogo(ImVec2(kSidebarWidth * 0.5f, 46.0f), 44.0f);
-
-	const char* wordmark = "SACHIN LOADER";
-	const float wordmark_w = text_width(font.semibold, 15.0f, wordmark);
-	gradient_text(font.semibold, 15.0f, ImVec2((kSidebarWidth - wordmark_w) * 0.5f, 78.0f), wordmark,
-		lift(kBlue, 0.15f), kPurple);
-
-	const char* dots = "PLAY  \u2022  LAUNCH  \u2022  ENJOY";
-	const float tagline_w = text_width(font.caption, 9.0f, dots);
-	text(font.caption, 9.0f, ImVec2((kSidebarWidth - tagline_w) * 0.5f, 100.0f), kDim, dots);
-
-	divider(24.0f, kSidebarWidth - 24.0f, 116.0f);
 
 	// ------------------------------------------------------------ nav items --
 	float y = kNavTop;
@@ -171,29 +173,58 @@ void draw_sidebar()
 	}
 }
 
-void draw_footer()
+// Full-width strip at the bottom: avatar + name on the left, STATUS / VERSION
+// (and FPS when enabled) on the right.
+void draw_profile_strip()
 {
 	ImDrawList* draw = ImGui::GetWindowDrawList();
-	const float line_y = kContentBottom + 20.0f;
-	const float text_y = app::kHeight - 36.0f;
+	const float y0 = app::kHeight - kProfileStripHeight;
+	const float y1 = app::kHeight;
+	const float cy = (y0 + y1) * 0.5f;
 
-	draw->AddLine(ImVec2(kContentLeft, line_y), ImVec2(kContentRight, line_y), color_u32(kLine), 1.0f);
+	draw->AddRectFilled(ImVec2(0.0f, y0), ImVec2(app::kWidth, y1), color_u32(kSidebar));
+	draw->AddLine(ImVec2(0.0f, y0), ImVec2(app::kWidth, y0), color_u32(kLine), 1.0f);
+
+	// --- left: gradient avatar + name + hint ------------------------------
+	const float r = 18.0f;
+	const ImVec2 avatar(26.0f + r, cy);
+	const Rect ar = rect(avatar.x - r, avatar.y - r, avatar.x + r, avatar.y + r);
+	gradient_box(ar, accent_color(), kPurple, r);
+
+	const sdauth::Session session = sdauth::GetSession();
+	const char* uname = session.username.empty() ? "friend" : session.username.c_str();
+	char letter[2] = { static_cast<char>(std::toupper(static_cast<unsigned char>(uname[0]))), 0 };
+	const float letter_w = text_width(font.semibold, 18.0f, letter);
+	text(font.semibold, 18.0f, ImVec2(avatar.x - letter_w * 0.5f, avatar.y - 10.0f), kWhite, letter);
+
+	text(font.semibold, 14.0f, ImVec2(avatar.x + r + 14.0f, cy - 13.0f), kText, uname);
+	text(font.caption, 11.0f, ImVec2(avatar.x + r + 14.0f, cy + 4.0f), kMuted, "Signed in");
+
+	// --- right: STATUS | VERSION (and FPS) --------------------------------
+	char version[32];
+	std::snprintf(version, sizeof(version), "v%s", app::kVersion);
+	const float v_w = text_width(font.semibold, 13.0f, version);
+	const float version_x = app::kWidth - 24.0f - v_w;
+	text(font.caption, 10.0f, ImVec2(version_x, cy - 15.0f), kDim, "VERSION");
+	text(font.semibold, 13.0f, ImVec2(version_x, cy + 2.0f), accent_color(), version);
 
 	const ImVec4 state_color = server_state_color();
-	draw->AddCircleFilled(ImVec2(kContentLeft + 4.0f, text_y + 6.0f), 3.0f, color_u32(state_color));
+	const char* status_text_v = server_state_text();
+	const float s_w = text_width(font.semibold, 13.0f, status_text_v) + 14.0f;
+	const float status_x = version_x - 36.0f - s_w;
+	text(font.caption, 10.0f, ImVec2(status_x, cy - 15.0f), kDim, "STATUS");
+	draw->AddCircleFilled(ImVec2(status_x + 5.0f, cy + 7.0f), 3.0f, color_u32(state_color));
+	text(font.semibold, 13.0f, ImVec2(status_x + 14.0f, cy + 2.0f),
+		state.light ? dim(state_color, 0.25f) : lift(state_color, 0.10f), status_text_v);
 
-	char left[160];
-	std::snprintf(left, sizeof(left), "Sachin Loader v%s  |  %s  |  session %s", app::kVersion,
-		server_state_text(), session_time().c_str());
-	text(font.caption, 10.0f, ImVec2(kContentLeft + 14.0f, text_y), kDim, left);
-
-	if (!shared.show_fps)
-		return;
-
-	char right[64];
-	std::snprintf(right, sizeof(right), "FPS %d", static_cast<int>(state.fps + 0.5f));
-	const float right_width = text_width(font.caption, 10.0f, right);
-	text(font.caption, 10.0f, ImVec2(kContentRight - right_width, text_y), kDim, right);
+	if (shared.show_fps)
+	{
+		char fps[32];
+		std::snprintf(fps, sizeof(fps), "FPS %d", static_cast<int>(state.fps + 0.5f));
+		const float f_w = text_width(font.caption, 11.0f, fps);
+		const float fps_x = status_x - 24.0f - f_w;
+		text(font.caption, 11.0f, ImVec2(fps_x, cy + 2.0f), kDim, fps);
+	}
 }
 
 // Pages that do not have their own file yet. They stay in the navigation, so
@@ -244,6 +275,7 @@ void Render()
 	tick_launch();
 
 	draw_background();
+	draw_header();
 	draw_sidebar();
 	draw_title_bar();
 
@@ -258,7 +290,7 @@ void Render()
 	default:              DrawHome(); break;
 	}
 
-	draw_footer();
+	draw_profile_strip();
 	draw_toasts();
 }
 
