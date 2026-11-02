@@ -283,9 +283,9 @@ void Render()
 	// the placeholder above until a page gets its own file and dash::Page value.
 	switch (state.page)
 	{
-	case PageProduct:     draw_placeholder("Product", icon_product); break;
-	case PageGameUpdates: draw_placeholder("Game Updates", icon_updates); break;
-	case PageSocials:     draw_placeholder("Socials", icon_socials); break;
+	case PageProduct:     DrawProduct(); break;
+	case PageGameUpdates: DrawGameUpdates(); break;
+	case PageSocials:     DrawSocials(); break;
 	case PageSettings:    draw_placeholder("Settings", icon_settings); break;
 	default:              DrawHome(); break;
 	}

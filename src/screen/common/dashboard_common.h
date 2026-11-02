@@ -253,6 +253,9 @@ void progress_bar(const ui::Rect& r, float fraction, const ImVec4& color);
 // ------------------------------------------------------------------ pages ----
 
 void DrawHome();
+void DrawProduct();
+void DrawGameUpdates();
+void DrawSocials();
 
 // Called once per frame by the shell; ends a finished launch message.
 void tick_launch();

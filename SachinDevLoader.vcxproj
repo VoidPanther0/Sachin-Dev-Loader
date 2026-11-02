@@ -167,6 +167,7 @@
     <ClCompile Include="src\screen\dashboard.cpp" />
     <ClCompile Include="src\screen\common\dashboard_common.cpp" />
     <ClCompile Include="src\screen\home.cpp" />
+    <ClCompile Include="src\screen\pages.cpp" />
     <ClCompile Include="src\screen\loading.cpp" />
     <ClCompile Include="src\screen\login.cpp" />
     <ClCompile Include="src\screen\common\login_common.cpp" />
