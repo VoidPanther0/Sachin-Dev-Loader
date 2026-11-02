@@ -256,6 +256,7 @@ void DrawHome();
 void DrawProduct();
 void DrawGameUpdates();
 void DrawSocials();
+void DrawSettings();
 
 // Called once per frame by the shell; ends a finished launch message.
 void tick_launch();
